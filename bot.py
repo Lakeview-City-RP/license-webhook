@@ -186,8 +186,11 @@ def license_endpoint():
         return jsonify({"status": "ok", "message": "License created"}), 200
 
     except Exception as e:
+        import traceback
         print(f"[Webhook Exception] {type(e).__name__}: {e}")
+        traceback.print_exc()  # 👈 shows exactly where it failed
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 # ---------- BASIC COMMANDS ----------
 @bot.command()
