@@ -2,13 +2,13 @@ from __future__ import annotations
 
 # --- stdlib
 import os, io, json, asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Thread
 from typing import Optional
 
 # --- third-party
 import aiohttp, requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from flask import Flask, request, jsonify
 
 # --- discord.py
@@ -31,8 +31,6 @@ PREFIX = "?"
 LICENSES_DIR = "licenses"
 JSON_FILE = "licenses.json"
 EXPIRATION_YEARS = 4
-UNLIMITED_CREATORS = {934850555728252978, 1303898031032373309}
-BLOXLINK_DEBUG = False
 
 # ========= DISCORD SETUP =========
 intents = discord.Intents.default()
@@ -79,24 +77,56 @@ async def fetch_bloxlink(discord_id: int, guild_id: Optional[int] = None):
 
 # ---------- LICENSE IMAGE ----------
 def create_license_image(username, avatar_bytes, fields, issued, expires, lic_num, description=""):
-    W, H = 1000, 620
-    img = Image.new("RGBA", (W, H), (30, 31, 34, 255))
+    """Draws a clean, centered license layout"""
+    W, H = 1000, 600
+    bg_color = (240, 243, 249)
+    border_color = (180, 188, 200)
+    accent = (53, 97, 180)
+
+    img = Image.new("RGBA", (W, H), bg_color)
     draw = ImageDraw.Draw(img)
+
+    # Rounded border
+    radius = 25
+    border = Image.new("RGBA", (W, H))
+    b_draw = ImageDraw.Draw(border)
+    b_draw.rounded_rectangle((0, 0, W-1, H-1), radius, outline=border_color, width=4)
+    img.alpha_composite(border)
+
+    # Load fonts
     try:
-        font_title = ImageFont.truetype("arialbd.ttf", 44)
-        font_label = ImageFont.truetype("arial.ttf", 22)
-        font_value = ImageFont.truetype("arialbd.ttf", 26)
+        font_title = ImageFont.truetype("arialbd.ttf", 40)
+        font_label = ImageFont.truetype("arial.ttf", 24)
+        font_value = ImageFont.truetype("arialbd.ttf", 28)
     except:
         font_title = font_label = font_value = ImageFont.load_default()
 
-    draw.rectangle((0, 0, W, 120), fill=(52, 56, 66))
-    try:
-        bbox = draw.textbbox((0, 0), username, font=font_title)
-        tw = bbox[2] - bbox[0]
-    except AttributeError:
-        tw, _ = draw.textsize(username, font=font_title)
+    # Avatar circle (if provided)
+    if avatar_bytes:
+        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+        avatar = avatar.resize((200, 200))
+        mask = Image.new("L", (200, 200), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse((0, 0, 200, 200), fill=255)
+        avatar = ImageOps.fit(avatar, (200, 200))
+        avatar.putalpha(mask)
+        img.paste(avatar, (60, 170), avatar)
 
-    draw.text(((W - tw) / 2, 35), f"{username} • City License", fill="white", font=font_title)
+    # Header
+    draw.text((300, 40), f"{username} • City License", fill=accent, font=font_title)
+
+    # License details
+    draw.text((300, 180), f"License #: {lic_num}", fill="black", font=font_value)
+    draw.text((300, 230), f"Product: {description or 'Driver License'}", fill="black", font=font_value)
+
+    draw.text((300, 310), f"Issued: {issued.strftime('%Y-%m-%d')}", fill="black", font=font_label)
+    draw.text((300, 350), f"Expires: {expires.strftime('%Y-%m-%d')}", fill="black", font=font_label)
+
+    draw.text((300, 420), f"Authorized by: Lakeview City DMV", fill=accent, font=font_label)
+
+    # DMV circle bottom-right
+    draw.ellipse((830, 430, 950, 550), outline=accent, width=5)
+    draw.text((860, 470), "DMV", fill=accent, font=font_value)
 
     out = io.BytesIO()
     img.convert("RGB").save(out, "PNG")
@@ -115,43 +145,64 @@ async def license(ctx):
 # ---------- FLASK APP ----------
 app = Flask(__name__)
 
-# ✅ Test route (to confirm Flask works)
+def _looks_like_template(v: str) -> bool:
+    return isinstance(v, str) and "{{" in v and "}}" in v
+
 @app.route("/license", methods=["POST"])
 def license_endpoint():
     try:
-        data = request.json
-        print("[Webhook] Incoming data:", data)  # 👈 Debug log
+        data = request.get_json(force=True, silent=True) or {}
+        print("[Webhook] Incoming data:", data)
 
-        username = data.get("roblox_username")
-        display = data.get("roblox_display")
-        avatar_url = data.get("roblox_avatar")
-        product = data.get("product_name", "VIP License")
+        username   = (data.get("roblox_username") or "").strip()
+        display    = (data.get("roblox_display")  or "").strip()
+        avatar_url = (data.get("roblox_avatar")   or "").strip()
+        roblox_id  = data.get("roblox_id")
+        product    = data.get("product_name", "Driver License")
 
-        # Validation checks
+        if _looks_like_template(username):
+            username = display or username
+
+        # Fetch avatar if missing or template-style
+        if (not avatar_url or _looks_like_template(avatar_url)) and roblox_id:
+            try:
+                r = requests.get(
+                    "https://thumbnails.roblox.com/v1/users/avatar-headshot",
+                    params={"userIds": roblox_id, "size": "420x420", "format": "Png", "isCircular": "false"},
+                    timeout=8,
+                )
+                if r.ok:
+                    j = r.json()
+                    if j.get("data"):
+                        avatar_url = j["data"][0].get("imageUrl") or avatar_url
+            except Exception as e:
+                print("[Avatar Fetch Error]", e)
+
         if not username:
-            print("[Webhook Error] Missing username")
             return jsonify({"status": "error", "message": "Missing username"}), 400
         if not avatar_url or not avatar_url.startswith("http"):
-            print(f"[Webhook Error] Invalid or missing avatar URL: {avatar_url}")
-            return jsonify({"status": "error", "message": "Invalid avatar URL"}), 400
+            return jsonify({"status": "error", "message": f"Invalid avatar URL: {avatar_url}"}), 400
 
-        print(f"[Webhook] Creating license for {username} ({product})")
-        avatar_bytes = requests.get(avatar_url).content
+        # Download avatar
+        avatar_bytes = None
+        try:
+            avatar_bytes = requests.get(avatar_url, timeout=10).content
+        except Exception as e:
+            print("[Avatar Download Error]", e)
 
-        # Create license image
-        img_data = create_license_image(
-            username, avatar_bytes, {}, datetime.utcnow(), datetime.utcnow(), "AUTO"
-        )
+        issued = datetime.utcnow()
+        expires = issued + timedelta(days=365 * EXPIRATION_YEARS)
+        lic_num = f"{username[:4].upper()}-{issued.year}"
+
+        img_data = create_license_image(username, avatar_bytes, {}, issued, expires, lic_num, product)
 
         # Send to Discord
         channel = bot.get_channel(1436890841703645285)
         if channel:
             bot.loop.create_task(
-                channel.send(
-                    file=discord.File(io.BytesIO(img_data), filename=f"{username}_license.png")
-                )
+                channel.send(file=discord.File(io.BytesIO(img_data), filename=f"{username}_license.png"))
             )
-        print(f"[Webhook] ✅ License successfully created for {username}")
+
         return jsonify({"status": "ok", "message": "License created"}), 200
 
     except Exception as e:
