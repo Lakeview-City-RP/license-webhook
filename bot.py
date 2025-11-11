@@ -37,6 +37,24 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 app = Flask(__name__)
 
+# ---------- TEXT MEASUREMENT HELPER ----------
+def measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont):
+    """
+    Returns (width, height) for text, compatible with Pillow ≥10 (no textsize).
+    """
+    if hasattr(draw, "textbbox"):
+        left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+        return (right - left, bottom - top)
+    elif hasattr(draw, "textsize"):  # older Pillow fallback
+        return draw.textsize(text, font=font)
+    else:  # ultimate fallback
+        try:
+            left, top, right, bottom = font.getbbox(text)
+            return (right - left, bottom - top)
+        except Exception:
+            return (len(text) * 10, 20)
+
+
 # ---------- LICENSE IMAGE ----------
 def create_license_image(username, avatar_bytes, roleplay_name, age, address, eye_color, height, issued, expires, lic_num):
     """Creates an official Lakeview City DMV Driver License"""
@@ -59,10 +77,10 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address, ey
     # Blue header
     draw.rectangle((0, 0, W, 100), fill=(42, 86, 160))
     header_text = f"{username} | Driver's License"
-    tw, _ = draw.textsize(header_text, font=font_header)
+    tw, th = measure_text(draw, header_text, font_header)
     draw.text(((W - tw) / 2, 30), header_text, fill="white", font=font_header)
 
-    # Watermark text
+    # Watermark
     watermark = "CITY OF LAKEVIEW • DMV • OFFICIAL USE ONLY  " * 3
     draw.text((30, 110), watermark[:95], fill=(90, 110, 150), font=font_small)
 
@@ -80,7 +98,7 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address, ey
         except Exception as e:
             print("[Avatar Error]", e)
 
-    # Info
+    # Info Section
     base_x = 340
     y = 170
     spacing = 42
@@ -105,17 +123,19 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address, ey
     draw.ellipse((cx, cy, cx + 120, cy + 120), outline=(60, 90, 180), width=4)
     draw.text((cx + 38, cy + 45), "DMV", fill=(60, 90, 180), font=font_bold)
 
-    # Notes section
+    # Notes Box
     draw.rounded_rectangle((40, 460, 960, 610), radius=20, outline=(150, 160, 180), width=2, fill=(240, 243, 250))
     draw.text((60, 470), "Notes", fill=(60, 90, 180), font=font_bold)
     draw.text((760, 470), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=color, font=font_text)
     draw.text((760, 510), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=color, font=font_text)
     draw.text((700, 580), "Lakeview City Roleplay", fill=(60, 90, 180), font=font_small)
 
+    # Output
     out = io.BytesIO()
     img.save(out, format="PNG")
     out.seek(0)
     return out.read()
+
 
 
 # ---------- FLASK WEBHOOK ----------
