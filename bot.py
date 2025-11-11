@@ -135,6 +135,7 @@ def license_endpoint():
         print(f"[Webhook Error] {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+from threading import Thread
 def run_flask():
     app.run(host="0.0.0.0", port=8080)
 
