@@ -1,95 +1,56 @@
 import os
-import io
-import json
-import uuid
-from datetime import datetime, timedelta
+import asyncio
+import aiohttp
 from flask import Flask, request, jsonify
-from PIL import Image
-
-# Import your helpers from bot.py
-from bot import create_license_image, load_licenses
 
 app = Flask(__name__)
 
-LICENSES_DIR = "licenses"
-JSON_FILE = "licenses.json"
-os.makedirs(LICENSES_DIR, exist_ok=True)
+# --- Bloxlink API Request ---
+async def get_bloxlink_info(discord_id: int, guild_id: int):
+    """Fetch Roblox ID + username from Bloxlink API"""
+    url = f"https://api.blox.link/v4/public/guilds/{guild_id}/discord-to-roblox/{discord_id}"
+    headers = {"Accept": "application/json", "User-Agent": "LicenseWebhook/1.0"}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                rid = data.get("robloxID")
+                username = data.get("resolved", {}).get("roblox", {}).get("username")
+                return rid, username
+            return None, None
 
-
+# --- Webhook Endpoint ---
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    """Receives BotGhost data and creates a license image + record."""
-    if not request.is_json:
-        return jsonify({"error": "Expected JSON body"}), 400
+    data = request.json or {}
+    discord_id = data.get("discord_id")
+    guild_id = data.get("guild_id")
 
-    data = request.get_json()
-    roblox_username = data.get("roblox_username", "Unknown")
-    roblox_user_id = str(data.get("roblox_user_id", "N/A"))
-    product_name = data.get("product_name", "Standard License")
-    full_name = data.get("full_name", "N/A")
-    dob = data.get("dob", "N/A")
-    address = data.get("address", "N/A")
-    eye_color = data.get("eye_color", "N/A")
-    height = data.get("height", "N/A")
+    if not discord_id or not guild_id:
+        return jsonify({"error": "Missing discord_id or guild_id"}), 400
 
-    issued = datetime.utcnow()
-    expires = issued + timedelta(days=365 * 4)
-    lic_num = f"{roblox_username.upper()}-{uuid.uuid4().hex[:6].upper()}"
+    # Fetch Bloxlink info
+    rid, username = asyncio.run(get_bloxlink_info(int(discord_id), int(guild_id)))
+    if not rid:
+        return jsonify({"error": "No linked Roblox account"}), 404
 
-    fields = {
-        "Full Name": full_name,
-        "DOB": dob,
-        "Address": address,
-        "Eye Color": eye_color,
-        "Height": height,
-    }
+    # Log and respond
+    print(f"✅ Discord {discord_id} → Roblox {username} ({rid})")
 
-    # Generate image (no avatar for simplicity)
-    img_bytes = create_license_image(
-        username=roblox_username,
-        avatar_bytes=None,
-        fields=fields,
-        issued=issued,
-        expires=expires,
-        lic_num=lic_num,
-        description=""
-    )
-
-    # Save PNG file
-    path = f"{LICENSES_DIR}/{lic_num}.png"
-    with open(path, "wb") as f:
-        f.write(img_bytes)
-
-    # Save record to licenses.json
-    record = {
-        "roblox_username": roblox_username,
-        "roblox_user_id": roblox_user_id,
-        "license_number": lic_num,
-        "issued": issued.strftime("%Y-%m-%d"),
-        "expires": expires.strftime("%Y-%m-%d"),
-        "fields": fields,
-        "image_path": path,
-        "product_name": product_name
-    }
-
-    existing = load_licenses()
-    existing[roblox_user_id] = record
-    with open(JSON_FILE, "w", encoding="utf-8") as f:
-        json.dump(existing, f, indent=2)
+    # Here you could send the data to your bot or image generator
+    # e.g., POST to another internal endpoint
+    # requests.post("https://my-discord-bot.onrender.com/license", json={"roblox_id": rid, "username": username})
 
     return jsonify({
-        "success": True,
-        "license_number": lic_num,
-        "roblox_username": roblox_username,
-        "image_path": path
+        "status": "ok",
+        "discord_id": discord_id,
+        "roblox_id": rid,
+        "roblox_username": username
     }), 200
-
 
 @app.route("/health")
 def health():
-    """Simple check to confirm Flask is alive."""
-    return jsonify({"ok": True, "status": "running"})
-
+    return "OK", 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
+    app.run(host="0.0.0.0", port=10000)
