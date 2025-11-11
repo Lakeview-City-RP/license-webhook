@@ -146,12 +146,17 @@ async def ping(ctx):
 async def on_ready():
     print(f"✅ Logged in as {bot.user} ({bot.user.id})")
 
-# ---------- RUN FLASK IN BACKGROUND ----------
-def run_flask():
-    app.run(host="0.0.0.0", port=8080)
+# ---------- RUN DISCORD BOT IN BACKGROUND ----------
+def run_bot():
+    bot.run(TOKEN)
 
-flask_thread = Thread(target=run_flask, daemon=True)
-flask_thread.start()
+# ---------- RUN FLASK AS MAIN PROCESS ----------
+if __name__ == "__main__":
+    bot_thread = Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
+    print("🚀 Starting Flask server for Render...")
+    app.run(host="0.0.0.0", port=8080)
 
 # ---------- RUN BOT ----------
 if __name__ == "__main__":
