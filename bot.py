@@ -142,85 +142,52 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address, ey
 @app.route("/license", methods=["POST"])
 def license_endpoint():
     try:
-        data = request.get_json(force=True, silent=True) or {}
-        print("[Webhook] Incoming data:", data)
+        data = request.json
+        print("[Webhook] Incoming data:", data)  # 👈 Debug log - shows full data from BotGhost
 
-        username = (data.get("roblox_username") or "").strip()
-        display = (data.get("roblox_display") or "").strip()
-        avatar_url = (data.get("roblox_avatar") or "").strip()
-        product = data.get("product_name", "Driver License")
-        discord_id = data.get("discord_id")
+        username = data.get("roblox_username")
+        display = data.get("roblox_display")
+        avatar_url = data.get("roblox_avatar")
+        product = data.get("product_name", "VIP License")
 
-        # Roleplay data
-        roleplay_name = (data.get("roleplay_name") or "").strip()
-        age = (data.get("age") or "").strip()
-        address = (data.get("address") or "").strip()
-        eye_color = (data.get("eye_color") or "").strip()
-        height = (data.get("height") or "").strip()
+        # Validation checks
+        if not username or not avatar_url:
+            print("[Webhook Error] Missing or invalid data!")
+            print("→ Full request data:", data)
+            return jsonify({"status": "error", "message": f"Missing data: {data}"}), 400
 
-        if not username:
-            return jsonify({"status": "error", "message": "Missing username"}), 400
-        if not avatar_url or not avatar_url.startswith("http"):
-            return jsonify({"status": "error", "message": f"Invalid avatar URL: {avatar_url}"}), 400
-
-        # Download avatar
-        avatar_bytes = None
-        try:
-            r = requests.get(avatar_url, timeout=10)
-            if r.ok:
-                avatar_bytes = r.content
-        except Exception as e:
-            print("[Avatar Download Error]", e)
-
-        issued = datetime.utcnow()
-        expires = issued + timedelta(days=365 * EXPIRATION_YEARS)
-        lic_num = f"{username[:8].upper()}01-{expires.year}"
+        # Continue normal logic
+        print(f"[Webhook] Creating license for {username} ({product})")
+        avatar_bytes = requests.get(avatar_url).content
 
         img_data = create_license_image(
-            username=username,
-            avatar_bytes=avatar_bytes,
-            roleplay_name=roleplay_name,
-            age=age,
-            address=address,
-            eye_color=eye_color,
-            height=height,
-            issued=issued,
-            expires=expires,
-            lic_num=lic_num,
+            username,
+            avatar_bytes,
+            data.get("roleplay_name"),
+            data.get("age"),
+            data.get("address"),
+            data.get("eye_color"),
+            data.get("height"),
+            datetime.utcnow(),
+            datetime.utcnow(),
+            "AUTO"
         )
 
-        # Send DM if user ID provided
-        if discord_id:
-            async def send_dm():
-                await bot.wait_until_ready()
-                user = bot.get_user(int(discord_id))
-                if user:
-                    try:
-                        await user.send(
-                            f"📄 Here’s your official {product}!",
-                            file=discord.File(io.BytesIO(img_data), filename=f"{roleplay_name or username}_license.png"),
-                        )
-                    except Exception as e:
-                        print(f"[DM Error] {e}")
-
-            bot.loop.create_task(send_dm())
-
-        # Log to channel as backup
-        channel = bot.get_channel(LICENSE_CHANNEL_ID)
+        # Send to Discord
+        channel = bot.get_channel(1436890841703645285)
         if channel:
             bot.loop.create_task(
                 channel.send(
-                    f"✅ License generated for **{roleplay_name or username}**",
-                    file=discord.File(io.BytesIO(img_data), filename=f"{roleplay_name or username}_license.png"),
+                    file=discord.File(io.BytesIO(img_data), filename=f"{username}_license.png")
                 )
             )
 
+        print(f"[Webhook] ✅ License successfully created for {username}")
         return jsonify({"status": "ok", "message": "License created"}), 200
 
     except Exception as e:
         print(f"[Webhook Exception] {type(e).__name__}: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 # ---------- BASIC COMMANDS ----------
 @bot.command()
