@@ -77,7 +77,7 @@ async def fetch_bloxlink(discord_id: int, guild_id: Optional[int] = None):
 
 # ---------- LICENSE IMAGE ----------
 def create_license_image(username, avatar_bytes, fields, issued, expires, lic_num, description=""):
-    """Draws a clean, centered DMV-style license card."""
+    """Draws a clean, centered DMV-style license card with proper text spacing."""
     W, H = 1000, 600
     bg_color = (245, 247, 252)
     accent = (60, 90, 180)
@@ -92,17 +92,18 @@ def create_license_image(username, avatar_bytes, fields, issued, expires, lic_nu
 
     # Fonts
     try:
-        font_title = ImageFont.truetype("arialbd.ttf", 42)
+        font_title = ImageFont.truetype("arialbd.ttf", 38)
         font_label = ImageFont.truetype("arial.ttf", 26)
         font_value = ImageFont.truetype("arialbd.ttf", 28)
     except:
         font_title = font_label = font_value = ImageFont.load_default()
 
-    # Header
-    draw.rectangle((0, 0, W, 100), fill=accent)
-    draw.text((40, 35), "Lakeview City Roleplay - DMV License", fill="white", font=font_title)
+    # Header — clean centered username
+    header_text = f"{username} | City License"
+    text_w, _ = draw.textsize(header_text, font=font_title)
+    draw.text(((W - text_w) / 2, 35), header_text, fill=accent, font=font_title)
 
-    # Avatar
+    # Avatar placement (left)
     if avatar_bytes:
         try:
             avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
@@ -111,27 +112,39 @@ def create_license_image(username, avatar_bytes, fields, issued, expires, lic_nu
             mdraw = ImageDraw.Draw(mask)
             mdraw.ellipse((0, 0, 220, 220), fill=255)
             avatar.putalpha(mask)
-            img.paste(avatar, (60, 180), avatar)
+            img.paste(avatar, (80, 180), avatar)
         except Exception as e:
             print(f"[Avatar Drawing Error] {e}")
 
-    # Info text
-    x = 320
-    draw.text((x, 170), f"Name: {username}", fill=text_col, font=font_value)
-    draw.text((x, 220), f"License #: {lic_num}", fill=text_col, font=font_value)
-    draw.text((x, 270), f"Type: {description or 'Driver License'}", fill=text_col, font=font_value)
-    draw.text((x, 350), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=text_col, font=font_label)
-    draw.text((x, 390), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=text_col, font=font_label)
-    draw.text((x, 460), "Authorized by: Lakeview City DMV", fill=accent, font=font_label)
+    # Info area
+    start_x = 360
+    y = 180
+    spacing = 45
+
+    draw.text((start_x, y), f"License #: {lic_num}", fill=text_col, font=font_value)
+    y += spacing
+    draw.text((start_x, y), f"Product: {description or 'Driver License'}", fill=text_col, font=font_value)
+    y += spacing
+    draw.text((start_x, y), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=text_col, font=font_label)
+    y += spacing
+    draw.text((start_x, y), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=text_col, font=font_label)
+
+    # Footer text
+    footer_text = "Authorized by Lakeview City DMV"
+    ft_w, _ = draw.textsize(footer_text, font=font_label)
+    draw.text(((W - ft_w) / 2, H - 80), footer_text, fill=accent, font=font_label)
 
     # DMV Seal
-    draw.ellipse((830, 420, 970, 560), outline=accent, width=4)
-    draw.text((870, 480), "DMV", fill=accent, font=font_value)
+    seal_x, seal_y = 820, 420
+    draw.ellipse((seal_x, seal_y, seal_x + 120, seal_y + 120), outline=accent, width=4)
+    draw.text((seal_x + 42, seal_y + 48), "DMV", fill=accent, font=font_value)
 
+    # Save
     out = io.BytesIO()
     img.save(out, "PNG")
     out.seek(0)
     return out.read()
+
 
 # ---------- LICENSE COMMAND ----------
 @bot.command()
