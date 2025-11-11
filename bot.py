@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 # --- stdlib
-import os, io, json, asyncio, hashlib
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+import os, io, json, asyncio
+from datetime import datetime
 from threading import Thread
+from typing import Optional
 
 # --- third-party
 import aiohttp, requests
@@ -14,12 +14,11 @@ from flask import Flask, request, jsonify
 # --- discord.py
 import discord
 from discord.ext import commands
-from discord import ui
 
 # ========= TOKEN & CONFIG =========
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# ✅ Optional local fallback for testing in PyCharm
+# ✅ Optional local fallback for testing
 if not TOKEN and os.path.exists("token.txt"):
     with open("token.txt", "r", encoding="utf-8") as f:
         TOKEN = f.read().strip()
@@ -35,6 +34,7 @@ EXPIRATION_YEARS = 4
 UNLIMITED_CREATORS = {934850555728252978, 1303898031032373309}
 BLOXLINK_DEBUG = False
 
+# ========= DISCORD SETUP =========
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -107,35 +107,40 @@ async def license(ctx):
     except:
         pass
 
-# ---------- FLASK WEBHOOK ----------
+# ---------- FLASK APP ----------
 app = Flask(__name__)
 
+# ✅ Test route (to confirm Flask works)
+@app.route("/")
+def index():
+    return "✅ Flask is working!"
+
+# ✅ Main webhook for BotGhost → Python
 @app.route("/license", methods=["POST"])
 def license_endpoint():
     data = request.json
-    username = data.get("roblox_username")
-    display = data.get("roblox_display")
-    avatar_url = data.get("roblox_avatar")
+    username = data.get("username")
+    avatar_url = data.get("avatar")
     product = data.get("product_name", "VIP License")
 
     if not all([username, avatar_url]):
-        return jsonify({"status": "error", "message": "Missing Roblox data"}), 400
+        return jsonify({"status": "error", "message": "Missing data"}), 400
 
     try:
-        # Generate the license image
         avatar_bytes = requests.get(avatar_url).content
         img_data = create_license_image(username, avatar_bytes, {}, datetime.utcnow(), datetime.utcnow(), "AUTO")
 
-        # Send license image to a Discord channel
-        channel = bot.get_channel(1436890841703645285)  # Replace with your actual channel ID
+        # Send image to your Discord channel
+        channel = bot.get_channel(1436890841703645285)  # Replace with your channel ID
         if channel:
             bot.loop.create_task(channel.send(file=discord.File(io.BytesIO(img_data), filename="license.png")))
+
         return jsonify({"status": "ok"}), 200
     except Exception as e:
         print(f"[Webhook Error] {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# ---------- PING COMMAND ----------
+# ---------- BOT COMMAND ----------
 @bot.command()
 async def ping(ctx):
     latency = round(bot.latency * 1000)
@@ -146,18 +151,12 @@ async def ping(ctx):
 async def on_ready():
     print(f"✅ Logged in as {bot.user} ({bot.user.id})")
 
-# ---------- RUN DISCORD BOT IN BACKGROUND ----------
+# ---------- RUN DISCORD BOT + FLASK ----------
 def run_bot():
     bot.run(TOKEN)
 
-# ---------- RUN FLASK AS MAIN PROCESS ----------
 if __name__ == "__main__":
     bot_thread = Thread(target=run_bot, daemon=True)
     bot_thread.start()
-
     print("🚀 Starting Flask server for Render...")
     app.run(host="0.0.0.0", port=8080)
-
-# ---------- RUN BOT ----------
-if __name__ == "__main__":
-    bot.run(TOKEN)
