@@ -90,7 +90,12 @@ def create_license_image(username, avatar_bytes, fields, issued, expires, lic_nu
         font_title = font_label = font_value = ImageFont.load_default()
 
     draw.rectangle((0, 0, W, 120), fill=(52, 56, 66))
-    tw, _ = draw.textsize(username, font=font_title)
+    try:
+        bbox = draw.textbbox((0, 0), username, font=font_title)
+        tw = bbox[2] - bbox[0]
+    except AttributeError:
+        tw, _ = draw.textsize(username, font=font_title)
+
     draw.text(((W - tw) / 2, 35), f"{username} • City License", fill="white", font=font_title)
 
     out = io.BytesIO()
