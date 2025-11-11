@@ -111,31 +111,40 @@ async def license(ctx):
 app = Flask(__name__)
 
 # ✅ Test route (to confirm Flask works)
-@app.route("/")
-def index():
-    return "✅ Flask is working!"
-
-# ✅ Main webhook for BotGhost → Python
 @app.route("/license", methods=["POST"])
 def license_endpoint():
     data = request.json
-    username = data.get("username")
-    avatar_url = data.get("avatar")
+    username = data.get("roblox_username")
+    display = data.get("roblox_display")
+    avatar_url = data.get("roblox_avatar")
     product = data.get("product_name", "VIP License")
 
     if not all([username, avatar_url]):
+        print("[Webhook Error] Missing data in POST body:", data)
         return jsonify({"status": "error", "message": "Missing data"}), 400
+
+    print(f"[Webhook] Received license request for {username} ({product})")
 
     try:
         avatar_bytes = requests.get(avatar_url).content
         img_data = create_license_image(username, avatar_bytes, {}, datetime.utcnow(), datetime.utcnow(), "AUTO")
 
-        # Send image to your Discord channel
-        channel = bot.get_channel(1436890841703645285)  # Replace with your channel ID
-        if channel:
-            bot.loop.create_task(channel.send(file=discord.File(io.BytesIO(img_data), filename="license.png")))
+        async def send_image():
+            await bot.wait_until_ready()
+            print("[Webhook] Bot is ready, trying to send license image...")
+            channel = bot.get_channel(1436890841703645285)  # ✅ Replace with your channel ID
+            if channel:
+                await channel.send(
+                    content=f"🎟️ New License generated for **{username}** ({product})",
+                    file=discord.File(io.BytesIO(img_data), filename="license.png")
+                )
+                print(f"[Webhook] ✅ License sent successfully for {username}")
+            else:
+                print("[Webhook Error] ❌ Channel not found or bot not in guild")
 
+        bot.loop.create_task(send_image())
         return jsonify({"status": "ok"}), 200
+
     except Exception as e:
         print(f"[Webhook Error] {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
