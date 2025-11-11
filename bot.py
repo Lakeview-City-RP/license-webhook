@@ -76,74 +76,100 @@ async def fetch_bloxlink(discord_id: int, guild_id: Optional[int] = None):
         return None, None, "error"
 
 # ---------- LICENSE IMAGE ----------
-def create_license_image(username, avatar_bytes, fields, issued, expires, lic_num, description=""):
-    """Draws a clean, centered DMV-style license card with proper text spacing."""
-    W, H = 1000, 600
-    bg_color = (245, 247, 252)
-    accent = (60, 90, 180)
-    border = (180, 190, 210)
-    text_col = (25, 25, 30)
+def create_license_image(username, avatar_bytes, fields, issued, expires, lic_num, description="Driver's License"):
+    """Creates an official-style Lakeview DMV license card."""
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-    img = Image.new("RGB", (W, H), bg_color)
+    W, H = 1000, 640
+    img = Image.new("RGB", (W, H), (245, 247, 252))
     draw = ImageDraw.Draw(img)
-
-    # Border
-    draw.rounded_rectangle((10, 10, W - 10, H - 10), radius=25, outline=border, width=4)
 
     # Fonts
     try:
-        font_title = ImageFont.truetype("arialbd.ttf", 38)
-        font_label = ImageFont.truetype("arial.ttf", 26)
-        font_value = ImageFont.truetype("arialbd.ttf", 28)
+        font_header = ImageFont.truetype("arialbd.ttf", 44)
+        font_bold = ImageFont.truetype("arialbd.ttf", 32)
+        font_text = ImageFont.truetype("arial.ttf", 24)
+        font_small = ImageFont.truetype("arial.ttf", 20)
     except:
-        font_title = font_label = font_value = ImageFont.load_default()
+        font_header = font_bold = font_text = font_small = ImageFont.load_default()
 
-    # Header — clean centered username
-    header_text = f"{username} | City License"
-    text_w, _ = draw.textsize(header_text, font=font_title)
-    draw.text(((W - text_w) / 2, 35), header_text, fill=accent, font=font_title)
+    # Rounded border
+    draw.rounded_rectangle((8, 8, W - 8, H - 8), radius=25, outline=(170, 180, 200), width=4)
 
-    # Avatar placement (left)
+    # Blue header bar
+    draw.rectangle((0, 0, W, 100), fill=(42, 86, 160))
+    header_text = f"{username} | {description}"
+    tw, _ = draw.textsize(header_text, font=font_header)
+    draw.text(((W - tw) / 2, 30), header_text, fill="white", font=font_header)
+
+    # Subheader watermark text
+    watermark_text = "CITY OF LAKEVIEW • DMV • OFFICIAL USE ONLY  " * 4
+    draw.text((30, 110), watermark_text[:95], fill=(90, 110, 150), font=font_small)
+
+    # Avatar image
     if avatar_bytes:
         try:
             avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-            avatar = avatar.resize((220, 220))
+            avatar = avatar.resize((240, 240))
             mask = Image.new("L", avatar.size, 0)
             mdraw = ImageDraw.Draw(mask)
-            mdraw.ellipse((0, 0, 220, 220), fill=255)
+            mdraw.rounded_rectangle((0, 0, 240, 240), radius=40, fill=255)
             avatar.putalpha(mask)
-            img.paste(avatar, (80, 180), avatar)
+            img.paste(avatar, (60, 180), avatar)
+            draw.rounded_rectangle((60, 180, 300, 420), radius=40, outline=(150, 160, 180), width=2)
         except Exception as e:
-            print(f"[Avatar Drawing Error] {e}")
+            print("[Avatar Error]", e)
 
-    # Info area
-    start_x = 360
-    y = 180
-    spacing = 45
+    # Labels and info
+    base_x = 340
+    y = 170
+    spacing = 42
+    field_color = (30, 30, 40)
 
-    draw.text((start_x, y), f"License #: {lic_num}", fill=text_col, font=font_value)
+    draw.text((base_x, y), username, fill=field_color, font=font_bold)
+    y += spacing + 10
+    draw.text((base_x, y), "Full Name:", fill=field_color, font=font_text)
+    draw.text((base_x + 160, y), username, fill=field_color, font=font_text)
     y += spacing
-    draw.text((start_x, y), f"Product: {description or 'Driver License'}", fill=text_col, font=font_value)
+    draw.text((base_x, y), "DOB:", fill=field_color, font=font_text)
+    draw.text((base_x + 160, y), "N/A", fill=field_color, font=font_text)
     y += spacing
-    draw.text((start_x, y), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=text_col, font=font_label)
+    draw.text((base_x, y), "Address:", fill=field_color, font=font_text)
+    draw.text((base_x + 160, y), "N/A", fill=field_color, font=font_text)
     y += spacing
-    draw.text((start_x, y), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=text_col, font=font_label)
+    draw.text((base_x, y), "Eye Color:", fill=field_color, font=font_text)
+    draw.text((base_x + 160, y), "N/A", fill=field_color, font=font_text)
+    y += spacing
+    draw.text((base_x, y), "Height:", fill=field_color, font=font_text)
+    draw.text((base_x + 160, y), "N/A", fill=field_color, font=font_text)
+    y += spacing
+    draw.text((base_x, y), "License #:", fill=field_color, font=font_text)
+    draw.text((base_x + 160, y), lic_num, fill=field_color, font=font_text)
 
-    # Footer text
-    footer_text = "Authorized by Lakeview City DMV"
-    ft_w, _ = draw.textsize(footer_text, font=font_label)
-    draw.text(((W - ft_w) / 2, H - 80), footer_text, fill=accent, font=font_label)
+    # DMV Seal (bottom-right)
+    cx, cy = 850, 500
+    draw.ellipse((cx, cy, cx + 120, cy + 120), outline=(60, 90, 180), width=4)
+    draw.text((cx + 38, cy + 45), "DMV", fill=(60, 90, 180), font=font_bold)
 
-    # DMV Seal
-    seal_x, seal_y = 820, 420
-    draw.ellipse((seal_x, seal_y, seal_x + 120, seal_y + 120), outline=accent, width=4)
-    draw.text((seal_x + 42, seal_y + 48), "DMV", fill=accent, font=font_value)
+    # Notes section
+    draw.rounded_rectangle((40, 460, 960, 610), radius=20, outline=(150, 160, 180), width=2, fill=(240, 243, 250))
+    draw.text((60, 470), "Notes", fill=(60, 90, 180), font=font_bold)
+    draw.text((760, 470), "Issued:", fill=field_color, font=font_text)
+    draw.text((855, 470), issued.strftime("%Y-%m-%d"), fill=field_color, font=font_text)
+    draw.text((760, 510), "Expires:", fill=field_color, font=font_text)
+    draw.text((855, 510), expires.strftime("%Y-%m-%d"), fill=field_color, font=font_text)
+    draw.text((700, 580), "Lakeview City Roleplay", fill=(60, 90, 180), font=font_small)
 
-    # Save
+    # Footer DMV authority text
+    auth_text = "License Sustained by Department of Motor Vehicles"
+    draw.text((base_x, 440), auth_text, fill=(40, 80, 180), font=font_small)
+
+    # Export to memory
     out = io.BytesIO()
-    img.save(out, "PNG")
+    img.save(out, format="PNG")
     out.seek(0)
     return out.read()
+
 
 
 # ---------- LICENSE COMMAND ----------
