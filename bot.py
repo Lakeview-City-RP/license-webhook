@@ -8,7 +8,7 @@ from typing import Optional
 
 # --- third-party
 import aiohttp, requests
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont
 from flask import Flask, request, jsonify
 
 # --- discord.py
@@ -77,59 +77,59 @@ async def fetch_bloxlink(discord_id: int, guild_id: Optional[int] = None):
 
 # ---------- LICENSE IMAGE ----------
 def create_license_image(username, avatar_bytes, fields, issued, expires, lic_num, description=""):
-    """Draws a clean, centered license layout"""
+    """Draws a clean, centered DMV-style license card."""
     W, H = 1000, 600
-    bg_color = (240, 243, 249)
-    border_color = (180, 188, 200)
-    accent = (53, 97, 180)
+    bg_color = (245, 247, 252)
+    accent = (60, 90, 180)
+    border = (180, 190, 210)
+    text_col = (25, 25, 30)
 
-    img = Image.new("RGBA", (W, H), bg_color)
+    img = Image.new("RGB", (W, H), bg_color)
     draw = ImageDraw.Draw(img)
 
-    # Rounded border
-    radius = 25
-    border = Image.new("RGBA", (W, H))
-    b_draw = ImageDraw.Draw(border)
-    b_draw.rounded_rectangle((0, 0, W-1, H-1), radius, outline=border_color, width=4)
-    img.alpha_composite(border)
+    # Border
+    draw.rounded_rectangle((10, 10, W - 10, H - 10), radius=25, outline=border, width=4)
 
-    # Load fonts
+    # Fonts
     try:
-        font_title = ImageFont.truetype("arialbd.ttf", 40)
-        font_label = ImageFont.truetype("arial.ttf", 24)
+        font_title = ImageFont.truetype("arialbd.ttf", 42)
+        font_label = ImageFont.truetype("arial.ttf", 26)
         font_value = ImageFont.truetype("arialbd.ttf", 28)
     except:
         font_title = font_label = font_value = ImageFont.load_default()
 
-    # Avatar circle (if provided)
-    if avatar_bytes:
-        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-        avatar = avatar.resize((200, 200))
-        mask = Image.new("L", (200, 200), 0)
-        mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, 200, 200), fill=255)
-        avatar = ImageOps.fit(avatar, (200, 200))
-        avatar.putalpha(mask)
-        img.paste(avatar, (60, 170), avatar)
-
     # Header
-    draw.text((300, 40), f"{username} • City License", fill=accent, font=font_title)
+    draw.rectangle((0, 0, W, 100), fill=accent)
+    draw.text((40, 35), "Lakeview City Roleplay - DMV License", fill="white", font=font_title)
 
-    # License details
-    draw.text((300, 180), f"License #: {lic_num}", fill="black", font=font_value)
-    draw.text((300, 230), f"Product: {description or 'Driver License'}", fill="black", font=font_value)
+    # Avatar
+    if avatar_bytes:
+        try:
+            avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+            avatar = avatar.resize((220, 220))
+            mask = Image.new("L", avatar.size, 0)
+            mdraw = ImageDraw.Draw(mask)
+            mdraw.ellipse((0, 0, 220, 220), fill=255)
+            avatar.putalpha(mask)
+            img.paste(avatar, (60, 180), avatar)
+        except Exception as e:
+            print(f"[Avatar Drawing Error] {e}")
 
-    draw.text((300, 310), f"Issued: {issued.strftime('%Y-%m-%d')}", fill="black", font=font_label)
-    draw.text((300, 350), f"Expires: {expires.strftime('%Y-%m-%d')}", fill="black", font=font_label)
+    # Info text
+    x = 320
+    draw.text((x, 170), f"Name: {username}", fill=text_col, font=font_value)
+    draw.text((x, 220), f"License #: {lic_num}", fill=text_col, font=font_value)
+    draw.text((x, 270), f"Type: {description or 'Driver License'}", fill=text_col, font=font_value)
+    draw.text((x, 350), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=text_col, font=font_label)
+    draw.text((x, 390), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=text_col, font=font_label)
+    draw.text((x, 460), "Authorized by: Lakeview City DMV", fill=accent, font=font_label)
 
-    draw.text((300, 420), f"Authorized by: Lakeview City DMV", fill=accent, font=font_label)
-
-    # DMV circle bottom-right
-    draw.ellipse((830, 430, 950, 550), outline=accent, width=5)
-    draw.text((860, 470), "DMV", fill=accent, font=font_value)
+    # DMV Seal
+    draw.ellipse((830, 420, 970, 560), outline=accent, width=4)
+    draw.text((870, 480), "DMV", fill=accent, font=font_value)
 
     out = io.BytesIO()
-    img.convert("RGB").save(out, "PNG")
+    img.save(out, "PNG")
     out.seek(0)
     return out.read()
 
@@ -163,7 +163,7 @@ def license_endpoint():
         if _looks_like_template(username):
             username = display or username
 
-        # Fetch avatar if missing or template-style
+        # Fetch avatar if missing
         if (not avatar_url or _looks_like_template(avatar_url)) and roblox_id:
             try:
                 r = requests.get(
@@ -183,10 +183,14 @@ def license_endpoint():
         if not avatar_url or not avatar_url.startswith("http"):
             return jsonify({"status": "error", "message": f"Invalid avatar URL: {avatar_url}"}), 400
 
-        # Download avatar
+        # ✅ Validate and download avatar
         avatar_bytes = None
         try:
-            avatar_bytes = requests.get(avatar_url, timeout=10).content
+            r = requests.get(avatar_url, timeout=10)
+            if r.ok:
+                avatar_bytes = r.content
+            else:
+                print("[Avatar Fetch] Failed with status:", r.status_code)
         except Exception as e:
             print("[Avatar Download Error]", e)
 
