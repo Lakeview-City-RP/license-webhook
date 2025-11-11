@@ -1,0 +1,6 @@
+token.txt
+__pycache__/
+.vscode/
+.venv/
+licenses/
+licenses.json
