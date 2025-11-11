@@ -98,7 +98,7 @@ def create_license_image(username, avatar_bytes, fields, issued, expires, lic_nu
     out.seek(0)
     return out.read()
 
-# ---------- LICENSE COMMANDS ----------
+# ---------- LICENSE COMMAND ----------
 @bot.command()
 async def license(ctx):
     await ctx.send("✅ License system is ready.")
@@ -107,7 +107,7 @@ async def license(ctx):
     except:
         pass
 
-# ---------- FLASK WEBHOOK (for BotGhost → Python) ----------
+# ---------- FLASK WEBHOOK ----------
 app = Flask(__name__)
 
 @app.route("/license", methods=["POST"])
@@ -127,7 +127,7 @@ def license_endpoint():
         img_data = create_license_image(username, avatar_bytes, {}, datetime.utcnow(), datetime.utcnow(), "AUTO")
 
         # Send license image to a Discord channel
-        channel = bot.get_channel(1436890841703645285) # ⬅️ Replace with your Discord channel ID (int)
+        channel = bot.get_channel(1436890841703645285)  # Replace with your actual channel ID
         if channel:
             bot.loop.create_task(channel.send(file=discord.File(io.BytesIO(img_data), filename="license.png")))
         return jsonify({"status": "ok"}), 200
@@ -135,27 +135,24 @@ def license_endpoint():
         print(f"[Webhook Error] {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-from threading import Thread
-def run_flask():
-    app.run(host="0.0.0.0", port=8080)
-
-Thread(target=run_flask, daemon=True).start()
-
-
+# ---------- PING COMMAND ----------
 @bot.command()
 async def ping(ctx):
-    latency = round(bot.latency * 1000)  # Convert to ms
+    latency = round(bot.latency * 1000)
     await ctx.send(f"Pong! 🏓 `{latency}ms`")
-
 
 # ---------- BOT STARTUP ----------
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} ({bot.user.id})")
 
+# ---------- RUN FLASK IN BACKGROUND ----------
+def run_flask():
+    app.run(host="0.0.0.0", port=8080)
 
-bot = commands.Bot(command_prefix='?', intents=discord.Intents.all())
+flask_thread = Thread(target=run_flask, daemon=True)
+flask_thread.start()
 
-
+# ---------- RUN BOT ----------
 if __name__ == "__main__":
     bot.run(TOKEN)
