@@ -8,7 +8,7 @@ from typing import Optional
 
 # --- third-party
 import aiohttp, requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from flask import Flask, request, jsonify
 
 # --- discord.py
@@ -45,80 +45,117 @@ if not os.path.exists(JSON_FILE):
 # ---------- LICENSE IMAGE ----------
 def create_license_image(username, avatar_bytes, roleplay_name, age, address, eye_color, height, issued, expires, lic_num):
     """Creates a modern Lakeview City DMV Driver License"""
-    W, H = 1000, 640
-    img = Image.new("RGB", (W, H), (236, 240, 250))
+    W, H = 800, 500
+    img = Image.new("RGB", (W, H), (240, 245, 255))
     draw = ImageDraw.Draw(img)
 
     # Colors
     header_color = (35, 70, 140)
     text_color = (25, 25, 35)
-    accent = (80, 120, 190)
+    accent = (60, 110, 200)
 
     # Fonts
     try:
-        font_title = ImageFont.truetype("arialbd.ttf", 54)
-        font_bold = ImageFont.truetype("arialbd.ttf", 30)
-        font_text = ImageFont.truetype("arial.ttf", 24)
-        font_small = ImageFont.truetype("arial.ttf", 20)
+        font_title = ImageFont.truetype("arialbd.ttf", 48)
+        font_bold = ImageFont.truetype("arialbd.ttf", 26)
+        font_text = ImageFont.truetype("arial.ttf", 22)
+        font_small = ImageFont.truetype("arial.ttf", 18)
     except:
         font_title = font_bold = font_text = font_small = ImageFont.load_default()
 
-    # Rounded outer card
-    draw.rounded_rectangle((8, 8, W - 8, H - 8), radius=40, fill=(250, 251, 255), outline=(180, 190, 210), width=4)
+    # Rounded background
+    base = Image.new("RGB", (W, H), (255, 255, 255))
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=40, fill=255)
+    img.paste(base, (0, 0), mask)
 
-    # Header bar
-    draw.rounded_rectangle((0, 0, W, 100), radius=20, fill=header_color)
-    title = f"{username} | Driver's License"
+    # Header
+    draw.rounded_rectangle((0, 0, W, 90), radius=40, fill=header_color)
+    title = "LAKEVIEW CITY DRIVER’S LICENSE"
     try:
         bbox = draw.textbbox((0, 0), title, font=font_title)
         tw = bbox[2] - bbox[0]
     except AttributeError:
         tw, _ = draw.textsize(title, font=font_title)
-    draw.text(((W - tw) / 2, 25), title, fill="white", font=font_title)
+    draw.text(((W - tw) / 2, 20), title, fill="white", font=font_title)
 
-    # Watermark / pattern
-    wm_text = "CITY OF LAKEVIEW DMV • OFFICIAL USE ONLY  " * 3
-    draw.text((30, 110), wm_text[:95], fill=(100, 120, 160), font=font_small)
+    # Banner line
+    banner_text = "CITY OF LAKEVIEW • OFFICIAL USE ONLY"
+    try:
+        bbox = draw.textbbox((0, 0), banner_text, font=font_small)
+        bw = bbox[2] - bbox[0]
+    except AttributeError:
+        bw, _ = draw.textsize(banner_text, font=font_small)
+    draw.rectangle((0, 90, W, 115), fill=(220, 225, 245))
+    draw.text(((W - bw) / 2, 93), banner_text, fill=(70, 90, 140), font=font_small)
 
     # Avatar
     if avatar_bytes:
         try:
             avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-            avatar = avatar.resize((240, 240))
-            mask = Image.new("L", avatar.size, 0)
-            mdraw = ImageDraw.Draw(mask)
-            mdraw.rounded_rectangle((0, 0, 240, 240), radius=45, fill=255)
-            avatar.putalpha(mask)
-            img.paste(avatar, (70, 180), avatar)
-            draw.rounded_rectangle((70, 180, 310, 420), radius=45, outline=(150, 160, 180), width=3)
+            avatar = avatar.resize((180, 180))
+            amask = Image.new("L", avatar.size, 0)
+            ImageDraw.Draw(amask).rounded_rectangle((0, 0, 180, 180), radius=40, fill=255)
+            avatar.putalpha(amask)
+            img.paste(avatar, (50, 160), avatar)
+            draw.rounded_rectangle((50, 160, 230, 340), radius=40, outline=(140, 150, 170), width=3)
         except Exception as e:
             print("[Avatar Error]", e)
 
-    # Info block
-    base_x = 360
-    y = 170
-    spacing = 45
+    # Info layout
+    x = 260
+    y = 150
+    spacing = 38
 
-    draw.text((base_x, y), roleplay_name or username, fill=text_color, font=font_bold)
+    draw.text((x, y), "IDENTITY", fill=accent, font=font_bold)
+    y += spacing
+    draw.text((x, y), f"Name: {roleplay_name or username}", fill=text_color, font=font_bold)
+    y += spacing
+    draw.text((x, y), f"Age: {age or 'N/A'}", fill=text_color, font=font_bold)
+    y += spacing
+    draw.text((x, y), f"Address: {address or 'N/A'}", fill=text_color, font=font_bold)
+
     y += spacing + 10
-    draw.text((base_x, y), f"Full Name: {roleplay_name or username}", fill=text_color, font=font_text)
+    draw.text((x, y), "PHYSICAL INFO", fill=accent, font=font_bold)
     y += spacing
-    draw.text((base_x, y), f"Age: {age or 'N/A'}", fill=text_color, font=font_text)
+    draw.text((x, y), f"Eye Color: {eye_color or 'N/A'}", fill=text_color, font=font_bold)
     y += spacing
-    draw.text((base_x, y), f"Address: {address or 'N/A'}", fill=text_color, font=font_text)
-    y += spacing
-    draw.text((base_x, y), f"Eye Color: {eye_color or 'N/A'}", fill=text_color, font=font_text)
-    y += spacing
-    draw.text((base_x, y), f"Height: {height or 'N/A'}", fill=text_color, font=font_text)
-    y += spacing
-    draw.text((base_x, y), f"License #: {lic_num}", fill=text_color, font=font_text)
+    draw.text((x, y), f"Height: {height or 'N/A'}", fill=text_color, font=font_bold)
 
-    # Notes / footer
-    draw.rounded_rectangle((40, 460, 960, 610), radius=25, outline=(150, 160, 180), width=2, fill=(240, 243, 250))
-    draw.text((60, 470), "Notes", fill=accent, font=font_bold)
-    draw.text((760, 470), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=text_color, font=font_text)
-    draw.text((760, 510), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=text_color, font=font_text)
-    draw.text((700, 580), "Lakeview City Roleplay", fill=accent, font=font_small)
+    y += spacing + 10
+    draw.text((x, y), "DMV INFO", fill=accent, font=font_bold)
+    y += spacing
+    draw.text((x, y), f"License #: {lic_num}", fill=text_color, font=font_bold)
+    y += spacing
+    draw.text((x, y), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=text_color, font=font_bold)
+    y += spacing
+    draw.text((x, y), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=text_color, font=font_bold)
+
+    # Notes
+    draw.rounded_rectangle((30, 370, W - 30, H - 20), radius=25, outline=(160, 170, 190), width=2, fill=(235, 238, 250))
+    draw.text((50, 380), "DMV NOTES", fill=accent, font=font_bold)
+    draw.text(
+        (50, 415),
+        "This license is property of the Lakeview City DMV.\n"
+        "Tampering or duplication is punishable by law.\n"
+        "Verify authenticity at https://lakeviewdmv.gov",
+        fill=(60, 60, 70),
+        font=font_small,
+    )
+
+    # Holographic overlay (gradient shimmer)
+    holo = Image.new("RGBA", img.size)
+    hdraw = ImageDraw.Draw(holo)
+    for i in range(H):
+        color = (
+            int(180 + 50 * (i / H)),
+            int(200 + 30 * (1 - i / H)),
+            255,
+            int(40 + 30 * (i / H)),
+        )
+        hdraw.line((0, i, W, i), fill=color)
+    holo = holo.filter(ImageFilter.GaussianBlur(6))
+    img = Image.alpha_composite(img.convert("RGBA"), holo)
 
     out = io.BytesIO()
     img.save(out, format="PNG")
@@ -156,36 +193,14 @@ def license_endpoint():
                 print("[Webhook Error] License channel not found")
                 return
 
-            embed = discord.Embed(
-                title="📇 Driver License Issued",
-                description=f"**{roleplay_name or username}** has been issued a new **Driver’s License**!",
-                color=0x4A90E2
-            )
-            embed.add_field(name="Name", value=roleplay_name or username, inline=True)
-            embed.add_field(name="Age", value=age or "N/A", inline=True)
-            embed.add_field(name="Eye Color", value=eye_color or "N/A", inline=True)
-            embed.add_field(name="Address", value=address or "N/A", inline=False)
-            embed.set_footer(text=f"Issued {datetime.utcnow().strftime('%Y-%m-%d')}")
-            embed.set_thumbnail(url=avatar_url)
-
-            user_mention = f"<@{discord_id}>" if discord_id else username
             file = discord.File(io.BytesIO(img_data), filename=f"{username}_license.png")
 
-            # Send to channel
-            await channel.send(content=f"{user_mention}, your license has been issued ✅", embed=embed, file=file)
-
-            # Try DM
+            await channel.send(file=file)
             try:
-                user = bot.get_user(int(discord_id))
-                if user:
-                    dm_embed = discord.Embed(
-                        title="🏙️ Lakeview City DMV",
-                        description=f"Here is your official **Driver’s License**, {roleplay_name or username}!",
-                        color=0x4A90E2
-                    )
-                    dm_embed.set_thumbnail(url=avatar_url)
-                    dm_embed.set_footer(text="Lakeview City Roleplay | DMV Records")
-                    await user.send(embed=dm_embed, file=file)
+                if discord_id:
+                    user = bot.get_user(int(discord_id))
+                    if user:
+                        await user.send(file=file)
             except Exception as e:
                 print(f"[DM Error] {e}")
 
