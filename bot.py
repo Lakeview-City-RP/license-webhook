@@ -79,21 +79,7 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address, ey
             pdraw.rectangle((x, y, x + 20, y + 20), fill=(230, 235, 250, 55))
     img = Image.alpha_composite(img.convert("RGBA"), pattern)
 
-    # Holographic LAKEVIEW watermark (medium size)
-    wm_text = "LAKEVIEW"
-    wm_font = load_font(140, bold=True)
-    watermark = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    wdraw = ImageDraw.Draw(watermark)
-    tw = wdraw.textlength(wm_text, font=wm_font)
-    text_img = Image.new("RGBA", (int(tw)+40, 180), (0, 0, 0, 0))
-    tdraw = ImageDraw.Draw(text_img)
-    tdraw.text((20, 0), wm_text, font=wm_font, fill=(240, 210, 100, 90))
-    text_img = text_img.rotate(35, expand=True, resample=Image.BICUBIC)
-    text_img = text_img.filter(ImageFilter.GaussianBlur(1))
-    watermark.paste(text_img,
-                    (int(W/2 - text_img.width/2), int(H/2 - text_img.height/2)),
-                    text_img)
-    img = Image.alpha_composite(img, watermark)
+    # --- Draw content before holographic overlay ---
 
     # Header bar
     draw.rounded_rectangle((0, 0, W, 100), radius=40, fill=header_color)
@@ -148,13 +134,12 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address, ey
               f"Issued: {issued.strftime('%Y-%m-%d')}     "
               f"Expires: {expires.strftime('%Y-%m-%d')}",
               fill=(50, 50, 60), font=font_small)
-    # Property / Tampering line moved up
     draw.text((50, notes_top + 75),
               "This license is property of the Lakeview City DMV.\n"
               "Tampering, duplication, or misuse is prohibited by law.",
               fill=(50, 50, 60), font=font_small)
 
-    # DMV Seal moved down in line with notes
+    # DMV Seal (same tone, slightly adjusted position)
     seal = Image.new("RGBA", (150, 150), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(seal)
     sdraw.ellipse((0, 0, 150, 150), outline=(220, 180, 80, 180), width=5)
@@ -164,13 +149,29 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address, ey
     seal = seal.filter(ImageFilter.GaussianBlur(0.5))
     img.paste(seal, (W - 180, H - 160), seal)
 
-    # Holographic overlay
-    holo = Image.new("RGBA", img.size)
+    # --- Add darker watermark (on top of content, below holographic) ---
+    wm_text = "LAKEVIEW"
+    wm_font = load_font(140, bold=True)
+    watermark = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    wdraw = ImageDraw.Draw(watermark)
+    tw = wdraw.textlength(wm_text, font=wm_font)
+    text_img = Image.new("RGBA", (int(tw)+40, 180), (0, 0, 0, 0))
+    tdraw = ImageDraw.Draw(text_img)
+    tdraw.text((20, 0), wm_text, font=wm_font, fill=(200, 180, 100, 110))
+    text_img = text_img.rotate(35, expand=True, resample=Image.BICUBIC)
+    text_img = text_img.filter(ImageFilter.GaussianBlur(1))
+    watermark.paste(text_img,
+                    (int(W/2 - text_img.width/2), int(H/2 - text_img.height/2)),
+                    text_img)
+    img = Image.alpha_composite(img.convert("RGBA"), watermark)
+
+    # --- Semi-transparent holographic overlay ---
+    holo = Image.new("RGBA", img.size, (0, 0, 0, 0))
     hdraw = ImageDraw.Draw(holo)
     for i in range(H):
-        color = (255, 220 - int(30*(i/H)), 120, int(45 + 25*(i/H)))
+        color = (255, 220 - int(30*(i/H)), 120, int(30 + 15*(i/H)))  # reduced opacity
         hdraw.line((0, i, W, i), fill=color)
-    holo = holo.filter(ImageFilter.GaussianBlur(5))
+    holo = holo.filter(ImageFilter.GaussianBlur(6))
     img = Image.alpha_composite(img, holo)
 
     buf = io.BytesIO()
