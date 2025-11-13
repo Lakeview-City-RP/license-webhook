@@ -114,18 +114,21 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     tw = draw.textlength(header_text, font=title_font)
     draw.text(((W - tw) / 2, 25), header_text, fill="white", font=title_font)
 
-    # MESH PATTERN — must be clipped INSIDE card
+    # =====================
+    # MESH BACKGROUND PATTERN (INSIDE CARD ONLY)
+    # =====================
     mesh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     mdraw = ImageDraw.Draw(mesh)
 
     for y in range(110, H, 28):
         for x in range(0, W, 28):
-            mdraw.line((x, y, x+14, y+14), fill=mesh_color, width=2)
-            mdraw.line((x+14, y, x, y+14), fill=mesh_color, width=2)
+            mdraw.line((x, y, x + 14, y + 14), fill=mesh_color, width=2)
+            mdraw.line((x + 14, y, x, y + 14), fill=mesh_color, width=2)
 
+    # Apply rounded mask so no X leaves the card shape
     mesh.putalpha(mask)
-    card = Image.alpha_composite(card, mesh)
-    draw = ImageDraw.Draw(card)
+    img = Image.alpha_composite(img, mesh)
+    draw = ImageDraw.Draw(img)
 
     # WATERMARK
     wm_text = "LAKEVIEW"
@@ -180,19 +183,26 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     field("Eye Color:", eye_color, ix, y); y += 40
     field("Height:", height, ix, y)
 
-    # DMV INFO BELOW AVATAR
-    dmv_y = 360
-    section_header("DMV INFO", 45, dmv_y)
+    # -----------------------
+    # DMV INFO (Clean layout under avatar)
+    # -----------------------
+    dmv_y = 360  # LOWERED so it never overlaps
+
+    section_header("DMV INFO", 50, dmv_y)
     dmv_y += 55
 
-    draw.text((45, dmv_y), "License Class: Standard", fill=grey_dark, font=label_font)
-    draw.text((45, dmv_y + 32), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
-    draw.text((45, dmv_y + 64), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
+    draw.text((50, dmv_y), "License Class: Standard", fill=grey_dark, font=label_font)
+    dmv_y += 36
+    draw.text((50, dmv_y), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
+    dmv_y += 36
+    draw.text((50, dmv_y), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
 
-    # Notes (two lines)
-    notes_y = dmv_y + 110
-    draw.text((45, notes_y), "This license is property of the Lakeview City DMV.", fill=grey_mid, font=small_font)
-    draw.text((45, notes_y + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid, font=small_font)
+    # Blank spacing before notes
+    dmv_y += 40
+
+    draw.text((50, dmv_y), "This license is property of the Lakeview City DMV.", fill=grey_mid, font=small_font)
+    draw.text((50, dmv_y + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid,
+              font=small_font)
 
     # DMV SEAL
     seal = Image.new("RGBA", (180, 180), (0, 0, 0, 0))
