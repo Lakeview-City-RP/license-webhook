@@ -81,61 +81,74 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     grey_dark = (40, 40, 40, 255)
     grey_mid = (75, 75, 75, 255)
     blue_accent = (50, 110, 200, 255)
-    grid_color = (225, 230, 240, 80)
-    dmv_gold = (220, 180, 80, 230)
+    grid_color = (200, 200, 215, 70)
+    mesh_color = (225, 225, 235, 70)
+    dmv_gold = (225, 190, 90, 255)
+    holo1 = (255, 220, 120, 90)
+    holo2 = (160, 200, 255, 90)
+    holo3 = (255, 150, 200, 90)
 
     # FONTS
     title_font = load_font(42, bold=True)
     label_font = load_font(22, bold=True)
     value_font = load_font(22, bold=False)
     small_font = load_font(16, bold=False)
+    section_font = load_font(24, bold=True)
 
-    # ================
+    # =====================
     # Rounded Card Base
-    # ================
+    # =====================
     radius = 60
     base = Image.new("RGBA", (W, H), card_bg)
     mask = Image.new("L", (W, H), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=radius, fill=255)
     img.paste(base, (0, 0), mask)
 
-    # =============
-    # HEADER BAR
-    # =============
+    # =====================
+    # Header Bar
+    # =====================
     draw.rounded_rectangle((0, 0, W, 95), radius=60, fill=header_blue)
     header_text = "Lakeview City • Driver’s License"
     tw = draw.textlength(header_text, font=title_font)
     draw.text(((W - tw) / 2, 25), header_text, fill="white", font=title_font)
 
-    # ======================
-    # BACKGROUND PATTERN
-    # ======================
-    for yy in range(110, H, 40):
-        for xx in range(0, W, 40):
-            draw.rectangle((xx + 10, yy + 10, xx + 26, yy + 26), fill=grid_color)
+    # =====================
+    # MESH BACKGROUND PATTERN
+    # =====================
+    # Diagonal mesh pattern — soft, realistic
+    mesh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    mdraw = ImageDraw.Draw(mesh)
 
-    # ======================
-    # WATERMARK
-    # ======================
-    wm_txt = "LAKEVIEW"
-    wm_font = load_font(120, bold=True)
+    for y in range(110, H, 28):
+        for x in range(0, W, 28):
+            mdraw.line((x, y, x + 14, y + 14), fill=mesh_color, width=2)
+            mdraw.line((x + 14, y, x, y + 14), fill=mesh_color, width=2)
+
+    img = Image.alpha_composite(img, mesh)
+    draw = ImageDraw.Draw(img)
+
+    # =====================
+    # Small, Subtle Watermark
+    # =====================
+    wm_text = "LAKEVIEW"
+    wm_font = load_font(90, bold=True)
     wm_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wdraw = ImageDraw.Draw(wm_layer)
-    tw = wdraw.textlength(wm_txt, font=wm_font)
 
-    tmp = Image.new("RGBA", (int(tw) + 40, 160), (0, 0, 0, 0))
+    tw = wdraw.textlength(wm_text, font=wm_font)
+    tmp = Image.new("RGBA", (int(tw) + 20, 120), (0, 0, 0, 0))
     tdraw = ImageDraw.Draw(tmp)
-    tdraw.text((20, 0), wm_txt, font=wm_font, fill=(150, 150, 150, 65))
-    tmp = tmp.rotate(33, expand=True, resample=Image.BICUBIC)
-    tmp = tmp.filter(ImageFilter.GaussianBlur(1.3))
+    tdraw.text((10, 0), wm_text, font=wm_font, fill=(160, 160, 160, 50))
+    tmp = tmp.rotate(33, expand=True)
+    tmp = tmp.filter(ImageFilter.GaussianBlur(1))
 
     wm_layer.paste(tmp, (W//2 - tmp.width//2, H//2 - tmp.height//2), tmp)
     img = Image.alpha_composite(img, wm_layer)
     draw = ImageDraw.Draw(img)
 
-    # =============
+    # =====================
     # AVATAR
-    # =============
+    # =====================
     try:
         avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
         avatar = avatar.resize((200, 200))
@@ -146,62 +159,81 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     except:
         pass
 
-    # ====================================================
-    # INFO COLUMNS (Identity + Physical)
-    # ====================================================
-    left_x = 280
-    y = 145
-    gap = 36
+    # =====================
+    # TEXT SECTIONS
+    # =====================
 
-    draw.text((left_x, y), f"@{username}", fill=blue_accent, font=label_font)
-    y += gap
+    # Section helper
+    def section_header(title, x, y):
+        draw.text((x, y), title, fill=blue_accent, font=section_font)
+        line_y = y + 30
+        draw.line((x, line_y, x + 300, line_y), fill=blue_accent, width=3)
 
-    def field(label, value, y):
-        draw.text((left_x, y), label, font=label_font, fill=grey_dark)
+    # Field helper
+    def field(label, value, x, y):
+        draw.text((x, y), label, fill=grey_dark, font=label_font)
         lw = draw.textlength(label, font=label_font)
-        draw.text((left_x + lw + 8, y), value or "N/A", font=value_font, fill=grey_mid)
+        draw.text((x + lw + 8, y), value or "N/A", font=value_font, fill=grey_mid)
 
-    # Identity
-    field("Name:", roleplay_name or username, y); y += gap
-    field("Age:", age, y); y += gap
-    field("Address:", address, y)
+    # -----------------------
+    # IDENTITY
+    # -----------------------
+    ix = 280
+    y = 140
 
-    # Physical Info
-    rx = 280
-    ry = 290
-    field("Eye Color:", eye_color, ry); ry += gap
-    field("Height:", height, ry)
+    section_header("IDENTITY", ix, y)
+    y += 50
 
-    # ===========================
-    # DMV INFO COLUMN (Left-Aligned)
-    # ===========================
+    field("Name:", roleplay_name or username, ix, y); y += 36
+    field("Age:", age, ix, y); y += 36
+    field("Address:", address, ix, y); y += 40
+
+    # -----------------------
+    # PHYSICAL
+    # -----------------------
+    section_header("PHYSICAL", ix, y)
+    y += 50
+
+    field("Eye Color:", eye_color, ix, y); y += 36
+    field("Height:", height, ix, y); y += 50
+
+    # -----------------------
+    # DMV INFO (Left-aligned under avatar)
+    # -----------------------
     dmv_y = 350
-    draw.text((50, dmv_y), f"License: {lic_num}", fill=grey_dark, font=label_font)
+    section_header("DMV INFO", 50, dmv_y)
+    dmv_y += 50
+
+    draw.text((50, dmv_y), f"License Class: Standard", fill=grey_dark, font=label_font)
     draw.text((50, dmv_y + 32), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
     draw.text((50, dmv_y + 64), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
 
-    # =============
-    # DMV NOTES
-    # =============
-    ny = 440
-    draw.text((50, ny), "This license is property of the Lakeview City DMV.", fill=grey_mid, font=small_font)
-    draw.text((50, ny + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid, font=small_font)
+    # =====================
+    # NOTES
+    # =====================
+    notes_y = 440
+    draw.text((50, notes_y), "This license is property of the Lakeview City DMV.", fill=grey_mid, font=small_font)
+    draw.text((50, notes_y + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid, font=small_font)
 
-    # =============
-    # DMV GOLD SEAL
-    # =============
-    seal = Image.new("RGBA", (160, 160), (0, 0, 0, 0))
+    # =====================
+    # HOLOGRAPHIC DMV SEAL
+    # =====================
+    seal = Image.new("RGBA", (180, 180), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(seal)
-    sdraw.ellipse((0, 0, 160, 160), outline=(220, 180, 80, 255), width=5)
-    sdraw.ellipse((20, 20, 140, 140), outline=(220, 180, 80, 160), width=2)
-    sdraw.text((45, 60), "Lakeview\nCity DMV\nCertified", fill=dmv_gold, font=small_font, align="center")
 
-    seal = seal.filter(ImageFilter.GaussianBlur(0.8))
-    img.paste(seal, (W - 200, 170), seal)
+    # Holographic rings
+    sdraw.ellipse((0, 0, 180, 180), outline=holo1, width=6)
+    sdraw.ellipse((10, 10, 170, 170), outline=holo2, width=4)
+    sdraw.ellipse((25, 25, 155, 155), outline=holo3, width=3)
 
-    # =============
-    # EXPORT PNG
-    # =============
+    # Text inside seal
+    sdraw.text((52, 70), "Lakeview\nCity DMV\nCertified",
+               fill=dmv_gold, font=small_font, align="center")
+
+    seal = seal.filter(ImageFilter.GaussianBlur(0.6))
+    img.paste(seal, (W - 220, 150), seal)
+
+    # EXPORT
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG")
     buf.seek(0)
