@@ -71,7 +71,7 @@ def load_font(size: int, bold: bool = False):
 def create_license_image(username, avatar_bytes, roleplay_name, age, address,
                          eye_color, height, issued, expires, lic_num):
 
-    W, H = 820, 520  # ERLC-style
+    W, H = 820, 520  # compact ERLC-style
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -81,6 +81,7 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     grey_dark = (40, 40, 40, 255)
     grey_mid = (75, 75, 75, 255)
     blue_accent = (50, 110, 200, 255)
+    grid_color = (200, 200, 215, 70)
     mesh_color = (225, 225, 235, 70)
     dmv_gold = (225, 190, 90, 255)
     holo1 = (255, 220, 120, 90)
@@ -90,8 +91,8 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     # FONTS
     title_font = load_font(42, bold=True)
     label_font = load_font(22, bold=True)
-    value_font = load_font(22)
-    small_font = load_font(16)
+    value_font = load_font(22, bold=False)
+    small_font = load_font(16, bold=False)
     section_font = load_font(24, bold=True)
 
     # =====================
@@ -112,8 +113,9 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     draw.text(((W - tw) / 2, 25), header_text, fill="white", font=title_font)
 
     # =====================
-    # MESH PATTERN (Clipped inside card)
+    # MESH BACKGROUND PATTERN
     # =====================
+    # Diagonal mesh pattern — soft, realistic
     mesh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     mdraw = ImageDraw.Draw(mesh)
 
@@ -122,12 +124,11 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
             mdraw.line((x, y, x + 14, y + 14), fill=mesh_color, width=2)
             mdraw.line((x + 14, y, x, y + 14), fill=mesh_color, width=2)
 
-    mesh.putalpha(mask)
     img = Image.alpha_composite(img, mesh)
     draw = ImageDraw.Draw(img)
 
     # =====================
-    # Watermark
+    # Small, Subtle Watermark
     # =====================
     wm_text = "LAKEVIEW"
     wm_font = load_font(90, bold=True)
@@ -159,42 +160,47 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
         pass
 
     # =====================
-    # Section + Field Helpers
+    # TEXT SECTIONS
     # =====================
+
+    # Section helper
     def section_header(title, x, y):
         draw.text((x, y), title, fill=blue_accent, font=section_font)
         line_y = y + 30
         draw.line((x, line_y, x + 300, line_y), fill=blue_accent, width=3)
 
+    # Field helper
     def field(label, value, x, y):
         draw.text((x, y), label, fill=grey_dark, font=label_font)
         lw = draw.textlength(label, font=label_font)
-        draw.text((x + lw + 8, y), value or "N/A", fill=grey_mid, font=value_font)
+        draw.text((x + lw + 8, y), value or "N/A", font=value_font, fill=grey_mid)
 
-    # =====================
+    # -----------------------
     # IDENTITY
-    # =====================
+    # -----------------------
     ix = 280
     y = 140
 
     section_header("IDENTITY", ix, y)
     y += 50
+
     field("Name:", roleplay_name or username, ix, y); y += 36
     field("Age:", age, ix, y); y += 36
     field("Address:", address, ix, y); y += 40
 
-    # =====================
+    # -----------------------
     # PHYSICAL
-    # =====================
+    # -----------------------
     section_header("PHYSICAL", ix, y)
     y += 50
-    field("Eye Color:", eye_color, ix, y); y += 36
-    field("Height:", height, ix, y); y += 40
 
-    # =====================
-    # DMV INFO — LOWERED + NON-OVERLAPPING
-    # =====================
-    dmv_y = 360  # FIXED — moved down to avoid overlap
+    field("Eye Color:", eye_color, ix, y); y += 36
+    field("Height:", height, ix, y); y += 50
+
+    # -----------------------
+    # DMV INFO (Clean layout under avatar)
+    # -----------------------
+    dmv_y = 360  # LOWERED so it never overlaps
 
     section_header("DMV INFO", 50, dmv_y)
     dmv_y += 55
@@ -204,11 +210,13 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     draw.text((50, dmv_y), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
     dmv_y += 36
     draw.text((50, dmv_y), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
+
+    # Blank spacing before notes
     dmv_y += 40
 
-    # NOTES (A-style, two lines)
     draw.text((50, dmv_y), "This license is property of the Lakeview City DMV.", fill=grey_mid, font=small_font)
-    draw.text((50, dmv_y + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid, font=small_font)
+    draw.text((50, dmv_y + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid,
+              font=small_font)
 
     # =====================
     # HOLOGRAPHIC DMV SEAL
@@ -216,21 +224,21 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     seal = Image.new("RGBA", (180, 180), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(seal)
 
+    # Holographic rings
     sdraw.ellipse((0, 0, 180, 180), outline=holo1, width=6)
     sdraw.ellipse((10, 10, 170, 170), outline=holo2, width=4)
     sdraw.ellipse((25, 25, 155, 155), outline=holo3, width=3)
 
+    # Text inside seal
     sdraw.text((52, 70), "Lakeview\nCity DMV\nCertified",
                fill=dmv_gold, font=small_font, align="center")
 
     seal = seal.filter(ImageFilter.GaussianBlur(0.6))
     img.paste(seal, (W - 220, 150), seal)
 
-    # =====================
-    # EXPORT PNG
-    # =====================
+    # EXPORT
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    img.convert("RGB").save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
 
