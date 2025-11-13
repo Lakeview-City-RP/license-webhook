@@ -16,11 +16,12 @@ from discord.ext import commands
 
 
 # =======================
-# TOKEN / DISCORD SETUP
+#  TOKEN / DISCORD SETUP
 # =======================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+# Optional local fallback for development
 if not TOKEN and os.path.exists("token.txt"):
     with open("token.txt", "r", encoding="utf-8") as f:
         TOKEN = f.read().strip()
@@ -36,65 +37,55 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 
 # ======================
-# FONT LOADING
+#  FONT LOADING HANDLER
 # ======================
 
 def load_font(size: int, bold: bool = False):
-    """Load a clean sans-serif font with fallbacks."""
+    """Loads a clean sans-serif font, falling back safely."""
     candidates = []
 
     if bold:
         candidates += [
             "arialbd.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
         ]
     else:
         candidates += [
             "arial.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         ]
 
-    for c in candidates:
+    for path in candidates:
         try:
-            return ImageFont.truetype(c, size)
-        except:
-            pass
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
 
     return ImageFont.load_default()
 
 
 # =================================
-# LICENSE IMAGE GENERATOR
+#  LICENSE CARD IMAGE GENERATOR
 # =================================
 
 def create_license_image(username, avatar_bytes, roleplay_name, age, address,
                          eye_color, height, issued, expires, lic_num):
 
-    W, H = 820, 520
-    radius = 60
-
-    # IMPORTANT: FULLY OPAQUE WHITE BACKGROUND
-    card_bg = (250, 250, 252, 255)
-
-    # Draw onto an opaque card, not transparent
-    card = Image.new("RGBA", (W, H), card_bg)
-
-    # Rounded mask
-    mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=radius, fill=255)
-
-    # Apply the rounded shape
-    card.putalpha(mask)
-
-    draw = ImageDraw.Draw(card)
+    W, H = 820, 520  # ERLC-style
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
 
     # COLORS
     header_blue = (35, 70, 140, 255)
+    card_bg = (250, 250, 252, 255)
     grey_dark = (40, 40, 40, 255)
     grey_mid = (75, 75, 75, 255)
     blue_accent = (50, 110, 200, 255)
     mesh_color = (225, 225, 235, 70)
     dmv_gold = (225, 190, 90, 255)
+    holo1 = (255, 220, 120, 90)
+    holo2 = (160, 200, 255, 90)
+    holo3 = (255, 150, 200, 90)
 
     # FONTS
     title_font = load_font(42, bold=True)
@@ -103,19 +94,25 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     small_font = load_font(16)
     section_font = load_font(24, bold=True)
 
-    # HEADER
-    header_rect = Image.new("RGBA", (W, 95), header_blue)
-    header_mask = Image.new("L", (W, 95), 0)
-    ImageDraw.Draw(header_mask).rounded_rectangle((0, 0, W, 95), radius=radius, fill=255)
+    # =====================
+    # Rounded Card Base
+    # =====================
+    radius = 60
+    base = Image.new("RGBA", (W, H), card_bg)
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=radius, fill=255)
+    img.paste(base, (0, 0), mask)
 
-    card.paste(header_rect, (0, 0), header_mask)
-
+    # =====================
+    # Header Bar
+    # =====================
+    draw.rounded_rectangle((0, 0, W, 95), radius=60, fill=header_blue)
     header_text = "Lakeview City • Driver’s License"
     tw = draw.textlength(header_text, font=title_font)
     draw.text(((W - tw) / 2, 25), header_text, fill="white", font=title_font)
 
     # =====================
-    # MESH BACKGROUND PATTERN (INSIDE CARD ONLY)
+    # MESH PATTERN (Clipped inside card)
     # =====================
     mesh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     mdraw = ImageDraw.Draw(mesh)
@@ -125,68 +122,79 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
             mdraw.line((x, y, x + 14, y + 14), fill=mesh_color, width=2)
             mdraw.line((x + 14, y, x, y + 14), fill=mesh_color, width=2)
 
-    # Apply rounded mask so no X leaves the card shape
     mesh.putalpha(mask)
     img = Image.alpha_composite(img, mesh)
     draw = ImageDraw.Draw(img)
 
-    # WATERMARK
+    # =====================
+    # Watermark
+    # =====================
     wm_text = "LAKEVIEW"
     wm_font = load_font(90, bold=True)
     wm_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wdraw = ImageDraw.Draw(wm_layer)
 
     tw = wdraw.textlength(wm_text, font=wm_font)
-    tmp = Image.new("RGBA", (int(tw)+20, 120), (0, 0, 0, 0))
+    tmp = Image.new("RGBA", (int(tw) + 20, 120), (0, 0, 0, 0))
     tdraw = ImageDraw.Draw(tmp)
-    tdraw.text((10, 0), wm_text, font=wm_font, fill=(160, 160, 160, 45))
-    tmp = tmp.rotate(33, expand=True).filter(ImageFilter.GaussianBlur(1))
+    tdraw.text((10, 0), wm_text, font=wm_font, fill=(160, 160, 160, 50))
+    tmp = tmp.rotate(33, expand=True)
+    tmp = tmp.filter(ImageFilter.GaussianBlur(1))
 
     wm_layer.paste(tmp, (W//2 - tmp.width//2, H//2 - tmp.height//2), tmp)
-    wm_layer.putalpha(mask)
-    card = Image.alpha_composite(card, wm_layer)
-    draw = ImageDraw.Draw(card)
+    img = Image.alpha_composite(img, wm_layer)
+    draw = ImageDraw.Draw(img)
 
+    # =====================
     # AVATAR
+    # =====================
     try:
         avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
         avatar = avatar.resize((200, 200))
         amask = Image.new("L", (200, 200), 0)
         ImageDraw.Draw(amask).rounded_rectangle((0, 0, 200, 200), radius=35, fill=255)
         avatar.putalpha(amask)
-        card.paste(avatar, (45, 135), avatar)
+        img.paste(avatar, (45, 135), avatar)
     except:
         pass
 
-    # SECTION HELPERS
+    # =====================
+    # Section + Field Helpers
+    # =====================
     def section_header(title, x, y):
         draw.text((x, y), title, fill=blue_accent, font=section_font)
-        draw.line((x, y+30, x+300, y+30), fill=blue_accent, width=3)
+        line_y = y + 30
+        draw.line((x, line_y, x + 300, line_y), fill=blue_accent, width=3)
 
     def field(label, value, x, y):
         draw.text((x, y), label, fill=grey_dark, font=label_font)
         lw = draw.textlength(label, font=label_font)
         draw.text((x + lw + 8, y), value or "N/A", fill=grey_mid, font=value_font)
 
+    # =====================
     # IDENTITY
+    # =====================
     ix = 280
     y = 140
+
     section_header("IDENTITY", ix, y)
-    y += 55
-    field("Name:", roleplay_name or username, ix, y); y += 40
-    field("Age:", age, ix, y); y += 40
-    field("Address:", address, ix, y); y += 50
+    y += 50
+    field("Name:", roleplay_name or username, ix, y); y += 36
+    field("Age:", age, ix, y); y += 36
+    field("Address:", address, ix, y); y += 40
 
+    # =====================
     # PHYSICAL
+    # =====================
     section_header("PHYSICAL", ix, y)
-    y += 55
-    field("Eye Color:", eye_color, ix, y); y += 40
-    field("Height:", height, ix, y)
+    y += 50
+    field("Eye Color:", eye_color, ix, y); y += 36
+    field("Height:", height, ix, y); y += 40
 
-    # -----------------------
-    # DMV INFO (Clean layout under avatar)
-    # -----------------------
-    dmv_y = 360  # LOWERED so it never overlaps
+    # =====================
+    # DMV INFO — LOWERED + NON-OVERLAPPING
+    # =====================
+    dmv_y = 360  # FIXED — moved down to avoid overlap
 
     section_header("DMV INFO", 50, dmv_y)
     dmv_y += 55
@@ -196,38 +204,44 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     draw.text((50, dmv_y), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
     dmv_y += 36
     draw.text((50, dmv_y), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
-
-    # Blank spacing before notes
     dmv_y += 40
 
+    # NOTES (A-style, two lines)
     draw.text((50, dmv_y), "This license is property of the Lakeview City DMV.", fill=grey_mid, font=small_font)
-    draw.text((50, dmv_y + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid,
-              font=small_font)
+    draw.text((50, dmv_y + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid, font=small_font)
 
-    # DMV SEAL
+    # =====================
+    # HOLOGRAPHIC DMV SEAL
+    # =====================
     seal = Image.new("RGBA", (180, 180), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(seal)
-    sdraw.ellipse((0,0,180,180), outline=(255,220,120,90), width=6)
-    sdraw.ellipse((10,10,170,170), outline=(160,200,255,90), width=4)
-    sdraw.ellipse((25,25,155,155), outline=(255,150,200,90), width=3)
-    sdraw.text((52,70), "Lakeview\nCity DMV\nCertified", fill=dmv_gold, font=small_font, align="center")
-    seal = seal.filter(ImageFilter.GaussianBlur(0.6))
-    card.paste(seal, (W-220, 150), seal)
 
-    # EXPORT — MUST REMAIN OPAQUE
-    out = io.BytesIO()
-    card.convert("RGB").save(out, format="PNG")
-    out.seek(0)
-    return out.read()
+    sdraw.ellipse((0, 0, 180, 180), outline=holo1, width=6)
+    sdraw.ellipse((10, 10, 170, 170), outline=holo2, width=4)
+    sdraw.ellipse((25, 25, 155, 155), outline=holo3, width=3)
+
+    sdraw.text((52, 70), "Lakeview\nCity DMV\nCertified",
+               fill=dmv_gold, font=small_font, align="center")
+
+    seal = seal.filter(ImageFilter.GaussianBlur(0.6))
+    img.paste(seal, (W - 220, 150), seal)
+
+    # =====================
+    # EXPORT PNG
+    # =====================
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf.read()
 
 
 # ======================
-# FLASK API
+#  FLASK WEB API
 # ======================
 
 app = Flask(__name__)
 
-def make_file(img_bytes, filename):
+def make_file(img_bytes: bytes, filename: str) -> discord.File:
     return discord.File(io.BytesIO(img_bytes), filename=filename)
 
 
@@ -238,79 +252,83 @@ def license_endpoint():
 
         username = data.get("roblox_username")
         avatar_url = data.get("roblox_avatar")
+        roleplay_name = data.get("roleplay_name")
+        age = data.get("age")
+        address = data.get("address")
+        eye_color = data.get("eye_color")
+        height = data.get("height")
+        discord_id = data.get("discord_id")
 
         if not username or not avatar_url:
-            return jsonify({"status": "error", "message": "Missing"}), 400
+            return jsonify({"status": "error", "message": "Missing username or avatar"}), 400
 
         avatar_bytes = requests.get(avatar_url, timeout=10).content
 
-        img_bytes = create_license_image(
-            username=username,
-            avatar_bytes=avatar_bytes,
-            roleplay_name=data.get("roleplay_name"),
-            age=data.get("age"),
-            address=data.get("address"),
-            eye_color=data.get("eye_color"),
-            height=data.get("height"),
-            issued=datetime.utcnow(),
-            expires=datetime.utcnow(),
-            lic_num="AUTO"
+        img_data = create_license_image(
+            username, avatar_bytes, roleplay_name, age, address,
+            eye_color, height, datetime.utcnow(), datetime.utcnow(),
+            "AUTO"
         )
-
         filename = f"{username}_license.png"
 
         async def send_license():
             await bot.wait_until_ready()
 
+            file = make_file(img_data, filename)
+
+            # SEND TO CHANNEL
             channel = bot.get_channel(1436890841703645285)
-
-            file = make_file(img_bytes, filename)
-
             if channel:
                 embed = discord.Embed(
                     title="Lakeview City Roleplay Driver’s License",
                     color=0x757575
                 )
                 embed.set_image(url=f"attachment://{filename}")
-
                 await channel.send(
-                    content=f"<@{data.get('discord_id')}> Your license has been issued!",
+                    content=f"<@{discord_id}> Your license has been issued!",
                     embed=embed,
                     file=file
                 )
 
-            if data.get("discord_id"):
+            # SEND DM
+            if discord_id:
                 try:
-                    user = await bot.fetch_user(int(data["discord_id"]))
+                    user = await bot.fetch_user(int(discord_id))
                     if user:
                         dm_embed = discord.Embed(
                             title="Your Lakeview City Driver’s License",
                             color=0x757575
                         )
                         dm_embed.set_image(url=f"attachment://{filename}")
-                        await user.send(embed=dm_embed, file=make_file(img_bytes, filename))
-                except:
-                    pass
+                        await user.send(
+                            embed=dm_embed,
+                            file=make_file(img_data, filename)
+                        )
+                except Exception as e:
+                    print("[DM Error]", e)
 
         bot.loop.create_task(send_license())
+
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
-        print("[ERROR]", e)
-        return jsonify({"status": "error"}), 500
+        import traceback
+        print("[Webhook Error]", e)
+        print(traceback.format_exc())
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # ======================
-# COMMANDS
+#  BASIC COMMANDS
 # ======================
 
 @bot.command()
 async def ping(ctx):
-    await ctx.send(f"Pong! `{round(bot.latency*1000)}ms`")
+    await ctx.send(f"Pong! `{round(bot.latency * 1000)}ms`")
 
 
 # ======================
-# READY
+#  BOT READY
 # ======================
 
 @bot.event
@@ -319,14 +337,13 @@ async def on_ready():
 
 
 # ======================
-# RUN
+#  RUN EVERYTHING
 # ======================
 
 def run_bot():
     bot.run(TOKEN)
 
-
 if __name__ == "__main__":
     Thread(target=run_bot, daemon=True).start()
-    print("🚀 Starting Flask")
+    print("🚀 Starting Flask server...")
     app.run(host="0.0.0.0", port=8080)
