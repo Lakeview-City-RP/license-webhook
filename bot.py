@@ -73,13 +73,23 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     W, H = 820, 520
     radius = 60
 
-    # DRAW ON A WHITE FULLY OPAQUE CANVAS (Fixes black output bug)
-    img = Image.new("RGBA", (W, H), (250, 250, 252, 255))
-    draw = ImageDraw.Draw(img)
+    # IMPORTANT: FULLY OPAQUE WHITE BACKGROUND
+    card_bg = (250, 250, 252, 255)
+
+    # Draw onto an opaque card, not transparent
+    card = Image.new("RGBA", (W, H), card_bg)
+
+    # Rounded mask
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=radius, fill=255)
+
+    # Apply the rounded shape
+    card.putalpha(mask)
+
+    draw = ImageDraw.Draw(card)
 
     # COLORS
     header_blue = (35, 70, 140, 255)
-    card_bg = (250, 250, 252, 255)
     grey_dark = (40, 40, 40, 255)
     grey_mid = (75, 75, 75, 255)
     blue_accent = (50, 110, 200, 255)
@@ -93,78 +103,59 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     small_font = load_font(16)
     section_font = load_font(24, bold=True)
 
-    # =========================
-    # ROUNDED RECTANGLE MASK
-    # =========================
-    mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=radius, fill=255)
-
-    # =========================
-    # APPLY BASE CARD BG
-    # =========================
-    base = Image.new("RGBA", (W, H), card_bg)
-    img.paste(base, (0, 0), mask)
-
-    draw = ImageDraw.Draw(img)
-
-    # =========================
     # HEADER
-    # =========================
-    draw.rounded_rectangle((0, 0, W, 95), radius=radius, fill=header_blue)
+    header_rect = Image.new("RGBA", (W, 95), header_blue)
+    header_mask = Image.new("L", (W, 95), 0)
+    ImageDraw.Draw(header_mask).rounded_rectangle((0, 0, W, 95), radius=radius, fill=255)
+
+    card.paste(header_rect, (0, 0), header_mask)
+
     header_text = "Lakeview City • Driver’s License"
     tw = draw.textlength(header_text, font=title_font)
     draw.text(((W - tw) / 2, 25), header_text, fill="white", font=title_font)
 
-    # =========================
-    # MESH — INSIDE CARD
-    # =========================
+    # MESH PATTERN — must be clipped INSIDE card
     mesh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     mdraw = ImageDraw.Draw(mesh)
 
     for y in range(110, H, 28):
         for x in range(0, W, 28):
-            mdraw.line((x, y, x + 14, y + 14), fill=mesh_color, width=2)
-            mdraw.line((x + 14, y, x, y + 14), fill=mesh_color, width=2)
+            mdraw.line((x, y, x+14, y+14), fill=mesh_color, width=2)
+            mdraw.line((x+14, y, x, y+14), fill=mesh_color, width=2)
 
     mesh.putalpha(mask)
-    img = Image.alpha_composite(img, mesh)
-    draw = ImageDraw.Draw(img)
+    card = Image.alpha_composite(card, mesh)
+    draw = ImageDraw.Draw(card)
 
-    # =========================
-    # WATERMARK (Light)
-    # =========================
+    # WATERMARK
     wm_text = "LAKEVIEW"
     wm_font = load_font(90, bold=True)
     wm_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wdraw = ImageDraw.Draw(wm_layer)
 
     tw = wdraw.textlength(wm_text, font=wm_font)
-    tmp = Image.new("RGBA", (int(tw)+20, 120), (0,0,0,0))
+    tmp = Image.new("RGBA", (int(tw)+20, 120), (0, 0, 0, 0))
     tdraw = ImageDraw.Draw(tmp)
-    tdraw.text((10,0), wm_text, font=wm_font, fill=(160,160,160,45))
+    tdraw.text((10, 0), wm_text, font=wm_font, fill=(160, 160, 160, 45))
     tmp = tmp.rotate(33, expand=True).filter(ImageFilter.GaussianBlur(1))
 
     wm_layer.paste(tmp, (W//2 - tmp.width//2, H//2 - tmp.height//2), tmp)
     wm_layer.putalpha(mask)
-    img = Image.alpha_composite(img, wm_layer)
-    draw = ImageDraw.Draw(img)
+    card = Image.alpha_composite(card, wm_layer)
+    draw = ImageDraw.Draw(card)
 
-    # =========================
     # AVATAR
-    # =========================
     try:
         avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
         avatar = avatar.resize((200, 200))
         amask = Image.new("L", (200, 200), 0)
-        ImageDraw.Draw(amask).rounded_rectangle((0,0,200,200), radius=35, fill=255)
+        ImageDraw.Draw(amask).rounded_rectangle((0, 0, 200, 200), radius=35, fill=255)
         avatar.putalpha(amask)
-        img.paste(avatar, (45,135), avatar)
+        card.paste(avatar, (45, 135), avatar)
     except:
         pass
 
-    # =========================
     # SECTION HELPERS
-    # =========================
     def section_header(title, x, y):
         draw.text((x, y), title, fill=blue_accent, font=section_font)
         draw.line((x, y+30, x+300, y+30), fill=blue_accent, width=3)
@@ -174,9 +165,7 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
         lw = draw.textlength(label, font=label_font)
         draw.text((x + lw + 8, y), value or "N/A", fill=grey_mid, font=value_font)
 
-    # =========================
-    # IDENTITY (RIGHT SIDE)
-    # =========================
+    # IDENTITY
     ix = 280
     y = 140
     section_header("IDENTITY", ix, y)
@@ -185,17 +174,13 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     field("Age:", age, ix, y); y += 40
     field("Address:", address, ix, y); y += 50
 
-    # =========================
-    # PHYSICAL (RIGHT SIDE)
-    # =========================
+    # PHYSICAL
     section_header("PHYSICAL", ix, y)
     y += 55
     field("Eye Color:", eye_color, ix, y); y += 40
     field("Height:", height, ix, y)
 
-    # =========================
-    # DMV INFO (LEFT, BELOW AVATAR)
-    # =========================
+    # DMV INFO BELOW AVATAR
     dmv_y = 360
     section_header("DMV INFO", 45, dmv_y)
     dmv_y += 55
@@ -204,34 +189,26 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     draw.text((45, dmv_y + 32), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
     draw.text((45, dmv_y + 64), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font)
 
-    # Notes spaced below DMV Info
+    # Notes (two lines)
     notes_y = dmv_y + 110
-    draw.text((45, notes_y), "This license is property of the Lakeview City DMV.",
-              fill=grey_mid, font=small_font)
-    draw.text((45, notes_y + 22), "Tampering, duplication, or misuse is prohibited by law.",
-              fill=grey_mid, font=small_font)
+    draw.text((45, notes_y), "This license is property of the Lakeview City DMV.", fill=grey_mid, font=small_font)
+    draw.text((45, notes_y + 22), "Tampering, duplication, or misuse is prohibited by law.", fill=grey_mid, font=small_font)
 
-    # =========================
-    # DMV SEAL (RIGHT SIDE)
-    # =========================
+    # DMV SEAL
     seal = Image.new("RGBA", (180, 180), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(seal)
-
     sdraw.ellipse((0,0,180,180), outline=(255,220,120,90), width=6)
     sdraw.ellipse((10,10,170,170), outline=(160,200,255,90), width=4)
     sdraw.ellipse((25,25,155,155), outline=(255,150,200,90), width=3)
-
-    sdraw.text((52,70), "Lakeview\nCity DMV\nCertified",
-               fill=dmv_gold, font=small_font, align="center")
-
+    sdraw.text((52,70), "Lakeview\nCity DMV\nCertified", fill=dmv_gold, font=small_font, align="center")
     seal = seal.filter(ImageFilter.GaussianBlur(0.6))
-    img.paste(seal, (W-220, 150), seal)
+    card.paste(seal, (W-220, 150), seal)
 
-    # EXPORT
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return buf.read()
+    # EXPORT — MUST REMAIN OPAQUE
+    out = io.BytesIO()
+    card.convert("RGB").save(out, format="PNG")
+    out.seek(0)
+    return out.read()
 
 
 # ======================
