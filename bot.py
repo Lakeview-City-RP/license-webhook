@@ -328,11 +328,15 @@ app = Flask(__name__)
 
 @app.route("/license", methods=["POST"])
 def license_endpoint():
-    try:
-        print("\n=== Incoming /license request ===")
-        print("JSON:", request.json)
+    print("\n======== /license HIT ========")
+    print("RAW BODY:", request.data)
 
-        data = request.json or {}
+    try:
+        data = request.json
+        print("PARSED JSON:", data)
+
+        if not data:
+            return jsonify({"status": "error", "message": "JSON parsing failed"}), 400
 
         username = data.get("roblox_username")
         avatar_url = data.get("roblox_avatar")
@@ -344,35 +348,42 @@ def license_endpoint():
         discord_id = data.get("discord_id")
         license_id = data.get("license_id") or username
 
+        print("username =", username)
+        print("avatar_url =", avatar_url)
+        print("roleplay_name =", roleplay_name)
+        print("age =", age)
+        print("address =", address)
+        print("eye_color =", eye_color)
+        print("height =", height)
+        print("discord_id =", discord_id)
+        print("license_id =", license_id)
+
         if not username or not avatar_url:
-            print("❌ Missing username or avatar URL")
+            print("ERROR: Missing username/avatar")
             return jsonify({"status": "error", "message": "Missing username/avatar"}), 400
 
-        print("→ Downloading avatar...")
         avatar_bytes = requests.get(avatar_url).content
+        print("Downloaded avatar:", len(avatar_bytes), "bytes")
 
-        print("→ Creating license image...")
         img = create_license_image(
             username, avatar_bytes, roleplay_name, age, address,
             eye_color, height, datetime.utcnow(), datetime.utcnow(), license_id
         )
 
-        print("→ Sending to Discord...")
-        bot.loop.create_task(send_license_to_discord(img, f"{username}_license.png", discord_id))
+        bot.loop.create_task(send_license_to_discord(
+            img, f"{username}_license.png", discord_id
+        ))
 
-        print("→ DONE")
+        print("Returning OK")
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
         import traceback
-        print("\n" + "!"*60)
-        print("🔥 ERROR IN /license ENDPOINT")
-        print("TYPE:", type(e))
-        print("MESSAGE:", str(e))
-        print("TRACEBACK:")
+        print("\n--- EXCEPTION ---")
         print(traceback.format_exc())
-        print("!"*60 + "\n")
-        return jsonify({"status": "error"}), 500
+        print("--- END ---")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 # ======================
