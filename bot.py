@@ -121,7 +121,6 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
         shade = int(35 + (60 - 35) * (i / 95))
         hd.line((0, i, W, i), fill=(shade, 70, 160))
 
-    header.putalpha(mask)
     card.paste(header, (0, 0), header)
 
     title = "LAKEVIEW CITY DRIVER LICENSE"
