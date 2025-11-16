@@ -21,7 +21,6 @@ from discord.ext import commands
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Optional local fallback for development
 if not TOKEN and os.path.exists("token.txt"):
     with open("token.txt", "r", encoding="utf-8") as f:
         TOKEN = f.read().strip()
@@ -41,7 +40,6 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 # ======================
 
 def load_font(size: int, bold: bool = False):
-    """Loads a clean sans-serif font, falling back safely."""
     candidates = []
 
     if bold:
@@ -58,7 +56,7 @@ def load_font(size: int, bold: bool = False):
     for path in candidates:
         try:
             return ImageFont.truetype(path, size)
-        except Exception:
+        except:
             continue
 
     return ImageFont.load_default()
@@ -74,86 +72,63 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     W, H = 820, 520
 
     # =============================
-    # CARD SHADOW BASE (depth)
+    # CARD SHADOW BASE
     # =============================
     shadow = Image.new("RGBA", (W + 40, H + 40), (0, 0, 0, 0))
     sd = ImageDraw.Draw(shadow)
     sd.rounded_rectangle((20, 20, W + 20, H + 20), radius=60, fill=(0, 0, 0, 90))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(25))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(22))
 
     img = shadow.copy()
-    card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    card = Image.new("RGBA", (W, H), (250, 250, 252, 255))
     draw = ImageDraw.Draw(card)
 
     # COLORS
-    header_blue = (35, 70, 140, 255)
-    card_bg = (250, 250, 252, 255)
-    grey_dark = (40, 40, 40, 255)
-    grey_mid = (75, 75, 75, 255)
-    blue_accent = (50, 110, 200, 255)
-    mesh_color = (200, 200, 215, 60)
-    dmv_gold = (225, 190, 90, 255)
+    header_blue = (35, 70, 140)
+    grey_dark = (40, 40, 40)
+    grey_mid = (75, 75, 75)
+    blue_accent = (50, 110, 200)
+    mesh_color = (200, 200, 215, 65)
+    dmv_gold = (225, 190, 90)
 
     # FONTS
     title_font = load_font(42, bold=True)
     label_font = load_font(22, bold=True)
-    value_font = load_font(22, bold=False)
-    small_font = load_font(16, bold=False)
+    value_font = load_font(22)
+    small_font = load_font(16)
     section_font = load_font(24, bold=True)
 
     # =============================
-    # CARD BACKGROUND
-    # =============================
-    radius = 60
-    base = Image.new("RGBA", (W, H), card_bg)
-    mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=radius, fill=255)
-    card.paste(base, (0, 0), mask)
-
-    # =============================
-    # GRADIENT HEADER
+    # HEADER BAR
     # =============================
     header = Image.new("RGBA", (W, 95), (0, 0, 0, 0))
-    hdraw = ImageDraw.Draw(header)
+    hd = ImageDraw.Draw(header)
 
     for i in range(95):
-        blend = int(35 + (60 - 35) * (i / 95))
-        hdraw.line((0, i, W, i), fill=(blend, 70, 160, 255))
+        shade = int(35 + (60 - 35) * (i / 95))
+        hd.line((0, i, W, i), fill=(shade, 70, 160))
 
-    card.paste(header, (0, 0), header)
+    card.paste(header, (0, 0))
 
-    # HEADER TEXT
     header_text = "Lakeview City • Driver’s License"
     tw = draw.textlength(header_text, font=title_font)
     draw.text(((W - tw) / 2, 25), header_text, fill="white", font=title_font)
 
     # =============================
-    # SOFT MESH BACKGROUND
+    # MESH BACKGROUND
     # =============================
     mesh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    m2 = ImageDraw.Draw(mesh)
+    md = ImageDraw.Draw(mesh)
 
     spacing = 34
     for y in range(110, H, spacing):
         for x in range(0, W, spacing):
-            m2.line((x, y, x + spacing//2, y + spacing//2), fill=mesh_color, width=2)
-            m2.line((x + spacing//2, y, x, y + spacing//2), fill=mesh_color, width=2)
+            md.line((x, y, x + spacing // 2, y + spacing // 2), fill=mesh_color, width=2)
+            md.line((x + spacing // 2, y, x, y + spacing // 2), fill=mesh_color, width=2)
 
-    mesh = mesh.filter(ImageFilter.GaussianBlur(0.8))
+    mesh = mesh.filter(ImageFilter.GaussianBlur(0.7))
     card = Image.alpha_composite(card, mesh)
     draw = ImageDraw.Draw(card)
-
-    # =============================
-    # MICRO-TEXT SECURITY STRIP
-    # =============================
-    micro = Image.new("RGBA", (W, 40), (0, 0, 0, 0))
-    mtd = ImageDraw.Draw(micro)
-
-    micro_text = "LAKEVIEW CITY DMV SECURE • " * 20
-    mtd.text((0, -5), micro_text, fill=(140, 140, 150, 90), font=small_font)
-
-    micro = micro.rotate(1, expand=False)
-    card.paste(micro, (0, 300), micro)
 
     # =============================
     # WATERMARK
@@ -161,106 +136,105 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     wm_text = "LAKEVIEW"
     wm_font = load_font(90, bold=True)
     wm_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    wdraw = ImageDraw.Draw(wm_layer)
+    wmd = ImageDraw.Draw(wm_layer)
 
-    tw = wdraw.textlength(wm_text, font=wm_font)
-    tmp = Image.new("RGBA", (int(tw) + 20, 140), (0, 0, 0, 0))
-    tdraw = ImageDraw.Draw(tmp)
-    tdraw.text((10, 0), wm_text, font=wm_font, fill=(160, 160, 160, 50))
+    tw = wmd.textlength(wm_text, font=wm_font)
+    tmp = Image.new("RGBA", (int(tw) + 20, 120), (0, 0, 0, 0))
+    tmd = ImageDraw.Draw(tmp)
+    tmd.text((10, 0), wm_text, font=wm_font, fill=(160, 160, 160, 40))
     tmp = tmp.rotate(33, expand=True)
     tmp = tmp.filter(ImageFilter.GaussianBlur(1))
 
-    wm_layer.paste(tmp, (W//2 - tmp.width//2, H//2 - tmp.height//2), tmp)
+    wm_layer.paste(tmp, (W // 2 - tmp.width // 2, H // 3), tmp)
     card = Image.alpha_composite(card, wm_layer)
     draw = ImageDraw.Draw(card)
 
     # =============================
-    # AVATAR (IMPROVED FRAME & SHADOW)
+    # AVATAR
     # =============================
     try:
         av = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
         av = av.resize((200, 200))
 
-        border = Image.new("RGBA", (210, 210), (255, 255, 255, 255))
-        bd = ImageDraw.Draw(border)
-        bd.rounded_rectangle((0, 0, 210, 210), radius=40, fill=(255, 255, 255))
+        mask = Image.new("L", (200, 200), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, 200, 200), radius=35, fill=255)
+        av.putalpha(mask)
 
-        amask = Image.new("L", (200, 200), 0)
-        ImageDraw.Draw(amask).rounded_rectangle((0, 0, 200, 200), radius=40, fill=255)
-        av.putalpha(amask)
+        shadow_av = av.filter(ImageFilter.GaussianBlur(4))
+        card.paste(shadow_av, (53, 143), shadow_av)
+        card.paste(av, (45, 135), av)
 
-        border.paste(av, (5, 5), av)
-
-        # Drop shadow
-        shadow = border.filter(ImageFilter.GaussianBlur(6))
-        card.paste(shadow, (48, 138), shadow)
-        card.paste(border, (45, 135), border)
     except:
         pass
 
-    # TEXT HELPERS
-    def section_header(t, x, y):
-        draw.text((x, y), t, fill=blue_accent, font=section_font)
-        draw.line((x, y + 32, x + 300, y + 32), fill=blue_accent, width=3)
-
-    def field(label, value, x, y):
-        draw.text((x, y), label, fill=grey_dark, font=label_font)
-        lw = draw.textlength(label, font=label_font)
-        draw.text((x + lw + 8, y), value or "N/A", font=value_font, fill=grey_mid)
-
     # =============================
-    # IDENTITY
+    # IDENTITY SECTION
     # =============================
     ix = 280
-    y = 140
+    iy = 140
 
-    section_header("IDENTITY", ix, y)
-    y += 50
-    field("Name:", roleplay_name or username, ix, y); y += 36
-    field("Age:", age, ix, y); y += 36
-    field("Address:", address, ix, y); y += 40
+    draw.text((ix, iy), "IDENTITY", fill=blue_accent, font=section_font)
+    draw.line((ix, iy + 32, ix + 260, iy + 32), fill=blue_accent, width=3)
+
+    iy += 50
+    draw.text((ix, iy), "Name:", font=label_font, fill=grey_dark)
+    draw.text((ix + 120, iy), roleplay_name or username, font=value_font, fill=grey_mid)
+    iy += 32
+
+    draw.text((ix, iy), "Age:", font=label_font, fill=grey_dark)
+    draw.text((ix + 120, iy), age, font=value_font, fill=grey_mid)
+    iy += 32
+
+    draw.text((ix, iy), "Address:", font=label_font, fill=grey_dark)
+    draw.text((ix + 120, iy), address, font=value_font, fill=grey_mid)
 
     # =============================
-    # PHYSICAL
+    # PHYSICAL SECTION
     # =============================
-    section_header("PHYSICAL", ix, y)
-    y += 50
-    field("Eye Color:", eye_color, ix, y); y += 36
-    field("Height:", height, ix, y); y += 50
+    px = 520
+    py = 140
+
+    draw.text((px, py), "PHYSICAL", fill=blue_accent, font=section_font)
+    draw.line((px, py + 32, px + 260, py + 32), fill=blue_accent, width=3)
+
+    py += 50
+    draw.text((px, py), "Eye Color:", font=label_font, fill=grey_dark)
+    draw.text((px + 130, py), eye_color, font=value_font, fill=grey_mid)
+    py += 32
+
+    draw.text((px, py), "Height:", font=label_font, fill=grey_dark)
+    draw.text((px + 130, py), height, font=value_font, fill=grey_mid)
 
     # =============================
     # DMV INFO
     # =============================
-    dmv_y = 360
-    section_header("DMV INFO", 50, dmv_y)
+    dmv_y = 350
+
+    draw.text((45, dmv_y), "DMV INFO", font=section_font, fill=blue_accent)
+    draw.line((45, dmv_y + 32, 350, dmv_y + 32), fill=blue_accent, width=3)
+
     dmv_y += 55
-
-    draw.text((50, dmv_y), "License Class: Standard", fill=grey_dark, font=label_font); dmv_y += 36
-    draw.text((50, dmv_y), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font); dmv_y += 36
-    draw.text((50, dmv_y), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font); dmv_y += 40
-
-    draw.text((50, dmv_y), "This license is property of the Lakeview City DMV.", fill=grey_mid, font=small_font)
-    draw.text((50, dmv_y + 22), "Tampering or duplication is prohibited by law.", fill=grey_mid, font=small_font)
+    draw.text((45, dmv_y), "License Class: Standard", fill=grey_dark, font=label_font); dmv_y += 32
+    draw.text((45, dmv_y), f"Issued: {issued.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font); dmv_y += 32
+    draw.text((45, dmv_y), f"Expires: {expires.strftime('%Y-%m-%d')}", fill=grey_dark, font=label_font); dmv_y += 40
 
     # =============================
-    # HOLOGRAPHIC SEAL
+    # DMV SEAL (small, bottom-right)
     # =============================
-    seal = Image.new("RGBA", (180, 180), (0, 0, 0, 0))
+    seal = Image.new("RGBA", (120, 120), (0, 0, 0, 0))
     s = ImageDraw.Draw(seal)
 
-    for r in range(180, 0, -1):
-        alpha = int(70 * (r / 180))
-        s.ellipse((90 - r, 90 - r, 90 + r, 90 + r), outline=(150, 200, 255, alpha), width=1)
+    s.ellipse((5, 5, 115, 115), outline=(150, 200, 255, 85), width=4)
+    s.text((28, 45), "DMV\nCERTIFIED", font=small_font, fill=dmv_gold, align="center")
 
-    s.text((52, 70), "Lakeview\nCity DMV\nCertified", fill=dmv_gold, font=small_font, align="center")
-    seal = seal.filter(ImageFilter.GaussianBlur(0.8))
+    seal = seal.filter(ImageFilter.GaussianBlur(0.5))
+    card.paste(seal, (W - 150, H - 170), seal)
 
-    card.paste(seal, (W - 220, 150), seal)
-
+    # MERGE
     img.paste(card, (20, 20), card)
 
     buf = io.BytesIO()
-    img.convert("PNG").save(buf, format="PNG")
+    img.convert("RGB").save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
 
@@ -306,7 +280,6 @@ def license_endpoint():
 
             file = make_file(img_data, filename)
 
-            # SEND TO CHANNEL
             channel = bot.get_channel(1436890841703645285)
             if channel:
                 embed = discord.Embed(
@@ -320,7 +293,6 @@ def license_endpoint():
                     file=file
                 )
 
-            # SEND DM
             if discord_id:
                 try:
                     user = await bot.fetch_user(int(discord_id))
