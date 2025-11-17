@@ -139,7 +139,11 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
         card.paste(shadow, (58, 153), shadow)
         card.paste(av, (50, 145), av)
     except Exception as e:
-        print("Avatar error:", e)
+        import traceback
+        print("\n===== ERROR IN /license =====")
+        traceback.print_exc()
+        print("===== END ERROR =====\n")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
     # ===== SECTION HEADERS =====
     ix, iy = 300, 150
