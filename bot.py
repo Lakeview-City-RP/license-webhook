@@ -114,23 +114,20 @@ def create_license_image(username, avatar_bytes, roleplay_name, age, address,
     tw = draw.textlength(title, font=title_font)
     draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
 
-    # ======================
-    # BACKGROUND MESH INSIDE MASK
-    # ======================
-    mesh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    md = ImageDraw.Draw(mesh)
-    spacing = 34
 
-    for y in range(120, H, spacing):
-        for x in range(0, W, spacing):
-            md.line((x, y, x + spacing//2, y + spacing//2),
-                    fill=mesh_color, width=2)
-            md.line((x + spacing//2, y, x, y + spacing//2),
-                    fill=mesh_color, width=2)
+    # SAFE BACKGROUND SECURITY STRIPES
+    # ======================
+    stripes = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(stripes)
 
-    mesh = mesh.filter(ImageFilter.GaussianBlur(0.7))
-    mesh.putalpha(mask)
-    card = Image.alpha_composite(card, mesh)
+    stripe_color = (180, 200, 230, 35)  # subtle light blue
+
+    for y in range(120, H, 12):
+        sd.rectangle((0, y, W, y + 6), fill=stripe_color)
+
+    # Clip stripes inside card mask
+    stripes.putalpha(mask)
+    card = Image.alpha_composite(card, stripes)
     draw = ImageDraw.Draw(card)
 
     # ======================
