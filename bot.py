@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 # --- stdlib ---
-import os, io, math
+import os, io
 from datetime import datetime, timedelta
 from threading import Thread
+import math
 
 # --- third-party ---
 import requests
@@ -40,25 +41,15 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 # ======================
 
 def load_font(size: int, bold: bool = False):
-    candidates = []
-
-    if bold:
-        candidates += [
-            "arialbd.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        ]
-    else:
-        candidates += [
-            "arial.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ]
-
-    for p in candidates:
+    files = [
+        ("arialbd.ttf" if bold else "arial.ttf"),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    ]
+    for f in files:
         try:
-            return ImageFont.truetype(p, size)
+            return ImageFont.truetype(f, size)
         except:
             pass
-
     return ImageFont.load_default()
 
 
@@ -79,17 +70,17 @@ def create_license_image(
     expires,
     lic_num,
 ):
-
     W, H = 820, 520
 
     # ========================
-    # CARD BASE WITH CURVE
+    # CARD BASE + ROUNDED CORNERS
     # ========================
     card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    base = Image.new("RGBA", (W, H), (255, 255, 255, 255))
+
     mask = Image.new("L", (W, H), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 70, fill=255)
 
-    base = Image.new("RGBA", (W, H), (255, 255, 255, 255))
     base.putalpha(mask)
     card = base.copy()
     draw = ImageDraw.Draw(card)
@@ -107,8 +98,10 @@ def create_license_image(
         b = int(220 + 20 * ratio)
         bgd.line((0, y, W, y), fill=(r, g, b, 255))
 
+    # Wave texture
     wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wd = ImageDraw.Draw(wave)
+
     for x in range(0, W, 40):
         for y in range(0, H, 40):
             wd.arc((x, y, x + 80, y + 80), 0, 180, fill=(255, 255, 255, 25), width=2)
@@ -121,7 +114,7 @@ def create_license_image(
     draw = ImageDraw.Draw(card)
 
     # ========================
-    # HEADER BAR
+    # HEADER
     # ========================
     header = Image.new("RGBA", (W, 95), (0, 0, 0, 0))
     hd = ImageDraw.Draw(header)
@@ -138,11 +131,11 @@ def create_license_image(
     draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
 
     # ========================
-    # DISPLAY NAME CENTERED ABOVE AVATAR
+    # DISPLAY NAME ABOVE AVATAR
     # ========================
     disp_font = load_font(28, bold=True)
-    dn_w = draw.textlength(display_name, font=disp_font)
-    draw.text((150 - dn_w // 2, 110), display_name, fill=(20, 20, 20), font=disp_font)
+    disp_w = draw.textlength(display_name, font=disp_font)
+    draw.text((50 + (200 - disp_w) / 2, 110), display_name, fill=(20, 20, 20), font=disp_font)
 
     # ========================
     # AVATAR
@@ -150,10 +143,9 @@ def create_license_image(
     try:
         av = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
         av = av.resize((200, 200))
-
-        m2 = Image.new("L", (200, 200), 0)
-        ImageDraw.Draw(m2).rounded_rectangle((0, 0, 200, 200), radius=35, fill=255)
-        av.putalpha(m2)
+        mask2 = Image.new("L", (200, 200), 0)
+        ImageDraw.Draw(mask2).rounded_rectangle((0, 0, 200, 200), 35, fill=255)
+        av.putalpha(mask2)
 
         shadow = av.filter(ImageFilter.GaussianBlur(4))
         card.alpha_composite(shadow, (58, 153))
@@ -162,60 +154,49 @@ def create_license_image(
         pass
 
     # ========================
-    # TEXT SECTIONS
+    # TEXT
     # ========================
-    section_font = load_font(24, bold=True)
-    label = load_font(22, bold=True)
-    value = load_font(22)
+    section = load_font(24, bold=True)
+    bold = load_font(22, bold=True)
+    normal = load_font(22)
 
     blue = (50, 110, 200)
-    grey1 = (40, 40, 40)
-    grey2 = (75, 75, 75)
+    grey = (40, 40, 40)
 
-    # ========================
-    # IDENTITY — FIXED
-    # ========================
-    ix = 280
+    # --- Identity ---
+    ix = 290
     iy = 150
-
-    draw.text((ix, iy), "IDENTITY", font=section_font, fill=blue)
+    draw.text((ix, iy), "IDENTITY", font=section, fill=blue)
     draw.line((ix, iy + 34, ix + 240, iy + 34), fill=blue, width=3)
 
-    label_width = 120
-    iy += 55
+    iy += 60
+    draw.text((ix, iy), "Name:", font=bold, fill=grey)
+    draw.text((ix + 115, iy), roleplay_name or username, font=normal, fill=grey)
 
-    draw.text((ix, iy), "Name:", font=label, fill=grey1)
-    draw.text((ix + label_width, iy), roleplay_name or username, font=value, fill=grey2)
-    iy += 32
+    iy += 34
+    draw.text((ix, iy), "Age:", font=bold, fill=grey)
+    draw.text((ix + 115, iy), age, font=normal, fill=grey)
 
-    draw.text((ix, iy), "Age:", font=label, fill=grey1)
-    draw.text((ix + label_width, iy), age, font=value, fill=grey2)
-    iy += 32
+    iy += 34
+    draw.text((ix, iy), "Address:", font=bold, fill=grey)
+    draw.text((ix + 115, iy), address, font=normal, fill=grey)
 
-    draw.text((ix, iy), "Address:", font=label, fill=grey1)
-    draw.text((ix + label_width, iy), address, font=value, fill=grey2)
-
-    # ========================
-    # PHYSICAL — FIXED
-    # ========================
+    # --- Physical ---
     px = 550
     py = 150
-
-    draw.text((px, py), "PHYSICAL", font=section_font, fill=blue)
+    draw.text((px, py), "PHYSICAL", font=section, fill=blue)
     draw.line((px, py + 34, px + 240, py + 34), fill=blue, width=3)
 
-    label_width = 140
-    py += 55
+    py += 60
+    draw.text((px, py), "Eye Color:", font=bold, fill=grey)
+    draw.text((px + 130, py), eye_color, font=normal, fill=grey)
 
-    draw.text((px, py), "Eye Color:", font=label, fill=grey1)
-    draw.text((px + label_width, py), eye_color, font=value, fill=grey2)
-    py += 32
-
-    draw.text((px, py), "Height:", font=label, fill=grey1)
-    draw.text((px + label_width, py), height, font=value, fill=grey2)
+    py += 34
+    draw.text((px, py), "Height:", font=bold, fill=grey)
+    draw.text((px + 130, py), height, font=normal, fill=grey)
 
     # ========================
-    # DMV BOX
+    # DMV INFO BOX
     # ========================
     BOX_Y = 360
     BOX_H = 140
@@ -228,40 +209,39 @@ def create_license_image(
         radius=35,
         fill=(200, 220, 255, 100),
         outline=(80, 140, 255, 180),
-        width=3
+        width=3,
     )
 
     card.alpha_composite(box, (40, BOX_Y))
     draw = ImageDraw.Draw(card)
 
-    draw.text((60, BOX_Y + 15), "DMV INFO", font=section_font, fill=blue)
+    draw.text((60, BOX_Y + 15), "DMV INFO", font=section, fill=blue)
     draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
 
-    # DMV Fields
-    y2 = BOX_Y + 60
+    y2 = BOX_Y + 65
 
-    draw.text((60, y2), "License Class:", font=label, fill=grey1)
-    draw.text((200, y2), "Standard", font=value, fill=grey2)
+    # License Class
+    draw.text((60, y2), "License Class:", font=bold, fill=grey)
+    draw.text((210, y2), "Standard", font=normal, fill=grey)
 
-    y2 += 40
+    # Issued + Expires
+    y2 += 38
+    draw.text((60, y2), "Issued:", font=bold, fill=grey)
+    draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=normal, fill=grey)
 
-    draw.text((60, y2), "Issued:", font=label, fill=grey1)
-    draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=value, fill=grey2)
-
-    draw.text((330, y2), "Expires:", font=label, fill=grey1)
-    draw.text((430, y2), expires.strftime("%Y-%m-%d"), font=value, fill=grey2)
+    draw.text((330, y2), "Expires:", font=bold, fill=grey)
+    draw.text((430, y2), expires.strftime("%Y-%m-%d"), font=normal, fill=grey)
 
     # ========================
-    # 8 POINT DMV STAR
+    # STAR SEAL
     # ========================
     seal = Image.new("RGBA", (95, 95), (0, 0, 0, 0))
     sd = ImageDraw.Draw(seal)
 
     cx, cy = 48, 48
-    R1 = 46
-    R2 = 20
-
+    R1, R2 = 46, 20
     pts = []
+
     for i in range(16):
         ang = math.radians(i * 22.5)
         r = R1 if i % 2 == 0 else R2
@@ -270,7 +250,7 @@ def create_license_image(
     sd.polygon(pts, fill=(40, 90, 180), outline="white", width=3)
     seal = seal.filter(ImageFilter.GaussianBlur(0.8))
 
-    card.alpha_composite(seal, (W - 150, BOX_Y + 15))
+    card.alpha_composite(seal, (W - 150, BOX_Y + 10))
 
     # EXPORT
     buf = io.BytesIO()
@@ -285,19 +265,20 @@ def create_license_image(
 
 async def send_license_to_discord(img_data, filename, discord_id):
     await bot.wait_until_ready()
-    file = discord.File(io.BytesIO(img_data), filename=filename)
 
+    file = discord.File(io.BytesIO(img_data), filename=filename)
     channel = bot.get_channel(1436890841703645285)
+
     if channel:
         embed = discord.Embed(
-            title="Lakeview City Roleplay Driver’s License",
-            color=0x757575
+            title="Lakeview City Roleplay Driver’s License", color=0x757575
         )
         embed.set_image(url=f"attachment://{filename}")
+
         await channel.send(
             content=f"<@{discord_id}> Your license has been issued!",
             embed=embed,
-            file=file
+            file=file,
         )
 
 
@@ -343,7 +324,7 @@ def license_endpoint():
             height,
             issued,
             expires,
-            username
+            username,
         )
 
         bot.loop.create_task(
@@ -373,6 +354,7 @@ async def on_ready():
 
 def run_bot():
     bot.run(TOKEN)
+
 
 if __name__ == "__main__":
     Thread(target=run_bot, daemon=True).start()
