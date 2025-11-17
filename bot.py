@@ -90,7 +90,6 @@ def create_license_image(
     # ================================
     card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 
-    # Entire card rounded (top too)
     mask = Image.new("L", (W, H), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=70, fill=255)
 
@@ -136,7 +135,6 @@ def create_license_image(
         shade = int(35 + (60 - 35) * (i / 95))
         hd.line((0, i, W, i), fill=(shade, 70, 160))
 
-    # Clip header to curved mask top
     header.putalpha(mask.crop((0, 0, W, 95)))
     card.alpha_composite(header, (0, 0))
 
@@ -146,7 +144,7 @@ def create_license_image(
     draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
 
     # ========================
-    # DISPLAY NAME (CENTERED ABOVE AVATAR)
+    # DISPLAY NAME
     # ========================
     disp_font = load_font(30, bold=True)
     disp_w = draw.textlength(display_name, font=disp_font)
@@ -170,7 +168,7 @@ def create_license_image(
         pass
 
     # ========================
-    # TEXT SECTIONS
+    # TEXT STYLES
     # ========================
     section_font = load_font(24, bold=True)
     label = load_font(22, bold=True)
@@ -181,7 +179,7 @@ def create_license_image(
     grey2 = (75, 75, 75)
 
     # ========================
-    # IDENTITY (moved left 20px)
+    # IDENTITY — FIXED FORMAT
     # ========================
     ix = 280
     iy = 150
@@ -191,18 +189,18 @@ def create_license_image(
 
     iy += 55
     draw.text((ix, iy), "Name:", font=label, fill=grey1)
-    draw.text((ix + 110, iy), roleplay_name or username, font=value, fill=grey2)
+    draw.text((ix, iy + 28), roleplay_name or username, font=value, fill=grey2)
 
-    iy += 32
+    iy += 65
     draw.text((ix, iy), "Age:", font=label, fill=grey1)
-    draw.text((ix + 110, iy), age, font=value, fill=grey2)
+    draw.text((ix, iy + 28), age, font=value, fill=grey2)
 
-    iy += 32
+    iy += 65
     draw.text((ix, iy), "Address:", font=label, fill=grey1)
-    draw.text((ix + 110, iy), address, font=value, fill=grey2)
+    draw.text((ix, iy + 28), address, font=value, fill=grey2)
 
     # ========================
-    # PHYSICAL
+    # PHYSICAL — FIXED FORMAT
     # ========================
     px = 550
     py = 150
@@ -212,11 +210,11 @@ def create_license_image(
 
     py += 55
     draw.text((px, py), "Eye Color:", font=label, fill=grey1)
-    draw.text((px + 130, py), eye_color, font=value, fill=grey2)
+    draw.text((px, py + 28), eye_color, font=value, fill=grey2)
 
-    py += 32
+    py += 65
     draw.text((px, py), "Height:", font=label, fill=grey1)
-    draw.text((px + 130, py), height, font=value, fill=grey2)
+    draw.text((px, py + 28), height, font=value, fill=grey2)
 
     # ========================
     # DMV BOX
@@ -244,17 +242,17 @@ def create_license_image(
     y2 = BOX_Y + 60
 
     draw.text((60, y2), "License Class:", font=label, fill=grey1)
-    draw.text((215, y2), "Standard", font=value, fill=grey2)
+    draw.text((220, y2), "Standard", font=value, fill=grey2)
 
-    y2 += 32
+    y2 += 40
     draw.text((60, y2), "Issued:", font=label, fill=grey1)
-    draw.text((150, y2), issued.strftime('%Y-%m-%d'), font=value, fill=grey2)
+    draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=value, fill=grey2)
 
     draw.text((330, y2), "Expires:", font=label, fill=grey1)
-    draw.text((430, y2), expires.strftime('%Y-%m-%d'), font=value, fill=grey2)
+    draw.text((430, y2), expires.strftime("%Y-%m-%d"), font=value, fill=grey2)
 
     # ========================
-    # STAR SEAL (8-point)
+    # STAR SEAL
     # ========================
     seal = Image.new("RGBA", (95, 95), (0, 0, 0, 0))
     sd = ImageDraw.Draw(seal)
