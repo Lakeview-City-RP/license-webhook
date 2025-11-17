@@ -36,6 +36,7 @@ intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 
+
 # ======================
 # FONT LOADING HANDLER
 # ======================
@@ -44,11 +45,15 @@ def load_font(size: int, bold: bool = False):
     candidates = []
 
     if bold:
-        candidates += ["arialbd.ttf",
-                       "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
+        candidates += [
+            "arialbd.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ]
     else:
-        candidates += ["arial.ttf",
-                       "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
+        candidates += [
+            "arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
 
     for p in candidates:
         try:
@@ -59,22 +64,35 @@ def load_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
+
 # =================================
 # LICENSE CARD IMAGE GENERATOR
 # =================================
 
-def create_license_image(username, avatar_bytes, display_name, roleplay_name,
-                         age, address, eye_color, height,
-                         issued, expires, lic_num):
+def create_license_image(
+    username,
+    avatar_bytes,
+    display_name,
+    roleplay_name,
+    age,
+    address,
+    eye_color,
+    height,
+    issued,
+    expires,
+    lic_num,
+):
 
     W, H = 820, 520
 
-    # ========================
-    # CURVED CARD BASE
-    # ========================
+    # ================================
+    # CARD BASE WITH FULL CURVED SHAPE
+    # ================================
     card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+
+    # Entire card rounded (top too)
     mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 70, fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=70, fill=255)
 
     base = Image.new("RGBA", (W, H), (255, 255, 255, 255))
     base.putalpha(mask)
@@ -84,23 +102,22 @@ def create_license_image(username, avatar_bytes, display_name, roleplay_name,
     # ========================
     # BACKGROUND GRADIENT + WAVES
     # ========================
-    bg = Image.new("RGBA", (W, H))
+    bg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     bgd = ImageDraw.Draw(bg)
 
     for y in range(H):
         ratio = y / H
         r = int(150 + 40 * ratio)
         g = int(180 + 50 * ratio)
-        b = int(220 + 25 * ratio)
-        bgd.line((0, y, W, y), fill=(r, g, b))
+        b = int(220 + 20 * ratio)
+        bgd.line((0, y, W, y), fill=(r, g, b, 255))
 
     wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wd = ImageDraw.Draw(wave)
 
     for x in range(0, W, 40):
         for y in range(0, H, 40):
-            wd.arc((x, y, x + 80, y + 80), 0, 180,
-                   fill=(255, 255, 255, 25), width=2)
+            wd.arc((x, y, x + 80, y + 80), 0, 180, fill=(255, 255, 255, 25), width=2)
 
     wave = wave.filter(ImageFilter.GaussianBlur(1.5))
     bg.alpha_composite(wave)
@@ -112,30 +129,28 @@ def create_license_image(username, avatar_bytes, display_name, roleplay_name,
     # ========================
     # HEADER BAR
     # ========================
-    header = Image.new("RGBA", (W, 95))
+    header = Image.new("RGBA", (W, 95), (0, 0, 0, 0))
     hd = ImageDraw.Draw(header)
 
     for i in range(95):
         shade = int(35 + (60 - 35) * (i / 95))
         hd.line((0, i, W, i), fill=(shade, 70, 160))
 
+    # Clip header to curved mask top
+    header.putalpha(mask.crop((0, 0, W, 95)))
     card.alpha_composite(header, (0, 0))
 
     title_font = load_font(42, bold=True)
     title = "LAKEVIEW CITY DRIVER LICENSE"
     tw = draw.textlength(title, font=title_font)
-    draw.text(((W - tw) // 2, 25), title, fill="white", font=title_font)
+    draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
 
     # ========================
-    # DISPLAY NAME — CENTERED ABOVE AVATAR
+    # DISPLAY NAME (CENTERED ABOVE AVATAR)
     # ========================
-    disp_font = load_font(28, bold=True)
-
-    # avatar area = 200px wide, starts at x = 50
-    av_center = 50 + 100
-    dn_width = draw.textlength(display_name, font=disp_font)
-    draw.text((av_center - dn_width / 2, 110),
-              display_name, fill=(30, 30, 30), font=disp_font)
+    disp_font = load_font(30, bold=True)
+    disp_w = draw.textlength(display_name, font=disp_font)
+    draw.text((150 - disp_w / 2, 110), display_name, fill=(30, 30, 30), font=disp_font)
 
     # ========================
     # AVATAR
@@ -145,8 +160,7 @@ def create_license_image(username, avatar_bytes, display_name, roleplay_name,
         av = av.resize((200, 200))
 
         m2 = Image.new("L", (200, 200), 0)
-        ImageDraw.Draw(m2).rounded_rectangle(
-            (0, 0, 200, 200), 35, fill=255)
+        ImageDraw.Draw(m2).rounded_rectangle((0, 0, 200, 200), radius=35, fill=255)
         av.putalpha(m2)
 
         shadow = av.filter(ImageFilter.GaussianBlur(4))
@@ -156,37 +170,36 @@ def create_license_image(username, avatar_bytes, display_name, roleplay_name,
         pass
 
     # ========================
-    # SECTION FONTS
+    # TEXT SECTIONS
     # ========================
     section_font = load_font(24, bold=True)
-    bold = load_font(22, bold=True)
+    label = load_font(22, bold=True)
     value = load_font(22)
 
     blue = (50, 110, 200)
+    grey1 = (40, 40, 40)
     grey2 = (75, 75, 75)
 
     # ========================
-    # IDENTITY (SHIFTED LEFT 20px)
+    # IDENTITY (moved left 20px)
     # ========================
-    ix = 280   # was 300, shifted left by 20px
+    ix = 280
     iy = 150
 
     draw.text((ix, iy), "IDENTITY", font=section_font, fill=blue)
     draw.line((ix, iy + 34, ix + 240, iy + 34), fill=blue, width=3)
 
     iy += 55
+    draw.text((ix, iy), "Name:", font=label, fill=grey1)
+    draw.text((ix + 110, iy), roleplay_name or username, font=value, fill=grey2)
 
-    draw.text((ix, iy), "Name:", font=bold, fill=(40, 40, 40))
-    draw.text((ix + 120, iy), roleplay_name or username,
-              font=value, fill=grey2)
     iy += 32
+    draw.text((ix, iy), "Age:", font=label, fill=grey1)
+    draw.text((ix + 110, iy), age, font=value, fill=grey2)
 
-    draw.text((ix, iy), "Age:", font=bold, fill=(40, 40, 40))
-    draw.text((ix + 120, iy), age, font=value, fill=grey2)
     iy += 32
-
-    draw.text((ix, iy), "Address:", font=bold, fill=(40, 40, 40))
-    draw.text((ix + 120, iy), address, font=value, fill=grey2)
+    draw.text((ix, iy), "Address:", font=label, fill=grey1)
+    draw.text((ix + 110, iy), address, font=value, fill=grey2)
 
     # ========================
     # PHYSICAL
@@ -198,13 +211,12 @@ def create_license_image(username, avatar_bytes, display_name, roleplay_name,
     draw.line((px, py + 34, px + 240, py + 34), fill=blue, width=3)
 
     py += 55
+    draw.text((px, py), "Eye Color:", font=label, fill=grey1)
+    draw.text((px + 130, py), eye_color, font=value, fill=grey2)
 
-    draw.text((px, py), "Eye Color:", font=bold, fill=(40, 40, 40))
-    draw.text((px + 140, py), eye_color, font=value, fill=grey2)
     py += 32
-
-    draw.text((px, py), "Height:", font=bold, fill=(40, 40, 40))
-    draw.text((px + 140, py), height, font=value, fill=grey2)
+    draw.text((px, py), "Height:", font=label, fill=grey1)
+    draw.text((px + 130, py), height, font=value, fill=grey2)
 
     # ========================
     # DMV BOX
@@ -212,12 +224,12 @@ def create_license_image(username, avatar_bytes, display_name, roleplay_name,
     BOX_Y = 360
     BOX_H = 140
 
-    box = Image.new("RGBA", (W - 80, BOX_H))
+    box = Image.new("RGBA", (W - 80, BOX_H), (0, 0, 0, 0))
     bd = ImageDraw.Draw(box)
 
     bd.rounded_rectangle(
         (0, 0, W - 80, BOX_H),
-        35,
+        radius=35,
         fill=(200, 220, 255, 100),
         outline=(80, 140, 255, 180),
         width=3
@@ -226,34 +238,32 @@ def create_license_image(username, avatar_bytes, display_name, roleplay_name,
     card.alpha_composite(box, (40, BOX_Y))
     draw = ImageDraw.Draw(card)
 
-    draw.text((60, BOX_Y + 15), "DMV INFO",
-              font=section_font, fill=blue)
+    draw.text((60, BOX_Y + 15), "DMV INFO", font=section_font, fill=blue)
     draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
 
     y2 = BOX_Y + 60
 
-    draw.text((60, y2), "License Class:", font=bold, fill=(40, 40, 40))
+    draw.text((60, y2), "License Class:", font=label, fill=grey1)
     draw.text((215, y2), "Standard", font=value, fill=grey2)
 
     y2 += 32
-    draw.text((60, y2), "Issued:", font=bold, fill=(40, 40, 40))
-    draw.text((215, y2), issued.strftime("%Y-%m-%d"),
-              font=value, fill=grey2)
+    draw.text((60, y2), "Issued:", font=label, fill=grey1)
+    draw.text((150, y2), issued.strftime('%Y-%m-%d'), font=value, fill=grey2)
 
-    draw.text((330, y2), "Expires:", font=bold, fill=(40, 40, 40))
-    draw.text((430, y2), expires.strftime("%Y-%m-%d"),
-              font=value, fill=grey2)
+    draw.text((330, y2), "Expires:", font=label, fill=grey1)
+    draw.text((430, y2), expires.strftime('%Y-%m-%d'), font=value, fill=grey2)
 
     # ========================
-    # STAR SEAL
+    # STAR SEAL (8-point)
     # ========================
     seal = Image.new("RGBA", (95, 95), (0, 0, 0, 0))
     sd = ImageDraw.Draw(seal)
 
     cx, cy = 48, 48
-    R1, R2 = 46, 20
-    pts = []
+    R1 = 46
+    R2 = 20
 
+    pts = []
     for i in range(16):
         ang = math.radians(i * 22.5)
         r = R1 if i % 2 == 0 else R2
@@ -264,13 +274,12 @@ def create_license_image(username, avatar_bytes, display_name, roleplay_name,
 
     card.alpha_composite(seal, (W - 150, BOX_Y + 15))
 
-    # ========================
     # EXPORT
-    # ========================
     buf = io.BytesIO()
     card.convert("RGB").save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
+
 
 
 # ======================
@@ -295,6 +304,7 @@ async def send_license_to_discord(img_data, filename, discord_id):
         )
 
 
+
 # ======================
 # FLASK API
 # ======================
@@ -310,7 +320,7 @@ def license_endpoint():
 
         username = data.get("roblox_username")
         display = data.get("roblox_display")
-        avatar_url = data.get("roblox_avatar")
+        avatar = data.get("roblox_avatar")
         roleplay = data.get("roleplay_name")
         age = data.get("age")
         addr = data.get("address")
@@ -318,18 +328,26 @@ def license_endpoint():
         height = data.get("height")
         discord_id = data.get("discord_id")
 
-        if not username or not avatar_url:
+        if not username or not avatar:
             return jsonify({"status": "error", "message": "Missing username/avatar"}), 400
 
-        avatar_bytes = requests.get(avatar_url).content
+        avatar_bytes = requests.get(avatar).content
 
         issued = datetime.utcnow()
         expires = issued + timedelta(days=150)
 
         img = create_license_image(
-            username, avatar_bytes, display,
-            roleplay, age, addr, eye, height,
-            issued, expires, username
+            username,
+            avatar_bytes,
+            display,
+            roleplay,
+            age,
+            addr,
+            eye,
+            height,
+            issued,
+            expires,
+            username
         )
 
         bot.loop.create_task(
@@ -344,6 +362,7 @@ def license_endpoint():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+
 # ======================
 # BOT READY
 # ======================
@@ -351,6 +370,7 @@ def license_endpoint():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
+
 
 
 # ======================
