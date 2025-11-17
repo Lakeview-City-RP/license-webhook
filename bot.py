@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 # --- stdlib ---
-import os, io
+import os, io, math
 from datetime import datetime, timedelta
 from threading import Thread
-import math
 
 # --- third-party ---
 import requests
@@ -36,7 +35,6 @@ intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 
-
 # ======================
 # FONT LOADING HANDLER
 # ======================
@@ -64,7 +62,6 @@ def load_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-
 # =================================
 # LICENSE CARD IMAGE GENERATOR
 # =================================
@@ -85,13 +82,12 @@ def create_license_image(
 
     W, H = 820, 520
 
-    # ================================
-    # CARD BASE WITH FULL CURVED SHAPE
-    # ================================
+    # ========================
+    # CARD BASE WITH CURVE
+    # ========================
     card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-
     mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=70, fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 70, fill=255)
 
     base = Image.new("RGBA", (W, H), (255, 255, 255, 255))
     base.putalpha(mask)
@@ -113,7 +109,6 @@ def create_license_image(
 
     wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wd = ImageDraw.Draw(wave)
-
     for x in range(0, W, 40):
         for y in range(0, H, 40):
             wd.arc((x, y, x + 80, y + 80), 0, 180, fill=(255, 255, 255, 25), width=2)
@@ -135,7 +130,6 @@ def create_license_image(
         shade = int(35 + (60 - 35) * (i / 95))
         hd.line((0, i, W, i), fill=(shade, 70, 160))
 
-    header.putalpha(mask.crop((0, 0, W, 95)))
     card.alpha_composite(header, (0, 0))
 
     title_font = load_font(42, bold=True)
@@ -144,11 +138,11 @@ def create_license_image(
     draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
 
     # ========================
-    # DISPLAY NAME
+    # DISPLAY NAME CENTERED ABOVE AVATAR
     # ========================
-    disp_font = load_font(30, bold=True)
-    disp_w = draw.textlength(display_name, font=disp_font)
-    draw.text((150 - disp_w / 2, 110), display_name, fill=(30, 30, 30), font=disp_font)
+    disp_font = load_font(28, bold=True)
+    dn_w = draw.textlength(display_name, font=disp_font)
+    draw.text((150 - dn_w // 2, 110), display_name, fill=(20, 20, 20), font=disp_font)
 
     # ========================
     # AVATAR
@@ -168,7 +162,7 @@ def create_license_image(
         pass
 
     # ========================
-    # TEXT STYLES
+    # TEXT SECTIONS
     # ========================
     section_font = load_font(24, bold=True)
     label = load_font(22, bold=True)
@@ -179,7 +173,7 @@ def create_license_image(
     grey2 = (75, 75, 75)
 
     # ========================
-    # IDENTITY — FIXED FORMAT
+    # IDENTITY — FIXED
     # ========================
     ix = 280
     iy = 150
@@ -187,20 +181,22 @@ def create_license_image(
     draw.text((ix, iy), "IDENTITY", font=section_font, fill=blue)
     draw.line((ix, iy + 34, ix + 240, iy + 34), fill=blue, width=3)
 
+    label_width = 120
     iy += 55
+
     draw.text((ix, iy), "Name:", font=label, fill=grey1)
-    draw.text((ix, iy + 28), roleplay_name or username, font=value, fill=grey2)
+    draw.text((ix + label_width, iy), roleplay_name or username, font=value, fill=grey2)
+    iy += 32
 
-    iy += 65
     draw.text((ix, iy), "Age:", font=label, fill=grey1)
-    draw.text((ix, iy + 28), age, font=value, fill=grey2)
+    draw.text((ix + label_width, iy), age, font=value, fill=grey2)
+    iy += 32
 
-    iy += 65
     draw.text((ix, iy), "Address:", font=label, fill=grey1)
-    draw.text((ix, iy + 28), address, font=value, fill=grey2)
+    draw.text((ix + label_width, iy), address, font=value, fill=grey2)
 
     # ========================
-    # PHYSICAL — FIXED FORMAT
+    # PHYSICAL — FIXED
     # ========================
     px = 550
     py = 150
@@ -208,13 +204,15 @@ def create_license_image(
     draw.text((px, py), "PHYSICAL", font=section_font, fill=blue)
     draw.line((px, py + 34, px + 240, py + 34), fill=blue, width=3)
 
+    label_width = 140
     py += 55
-    draw.text((px, py), "Eye Color:", font=label, fill=grey1)
-    draw.text((px, py + 28), eye_color, font=value, fill=grey2)
 
-    py += 65
+    draw.text((px, py), "Eye Color:", font=label, fill=grey1)
+    draw.text((px + label_width, py), eye_color, font=value, fill=grey2)
+    py += 32
+
     draw.text((px, py), "Height:", font=label, fill=grey1)
-    draw.text((px, py + 28), height, font=value, fill=grey2)
+    draw.text((px + label_width, py), height, font=value, fill=grey2)
 
     # ========================
     # DMV BOX
@@ -239,12 +237,14 @@ def create_license_image(
     draw.text((60, BOX_Y + 15), "DMV INFO", font=section_font, fill=blue)
     draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
 
+    # DMV Fields
     y2 = BOX_Y + 60
 
     draw.text((60, y2), "License Class:", font=label, fill=grey1)
-    draw.text((220, y2), "Standard", font=value, fill=grey2)
+    draw.text((200, y2), "Standard", font=value, fill=grey2)
 
     y2 += 40
+
     draw.text((60, y2), "Issued:", font=label, fill=grey1)
     draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=value, fill=grey2)
 
@@ -252,7 +252,7 @@ def create_license_image(
     draw.text((430, y2), expires.strftime("%Y-%m-%d"), font=value, fill=grey2)
 
     # ========================
-    # STAR SEAL
+    # 8 POINT DMV STAR
     # ========================
     seal = Image.new("RGBA", (95, 95), (0, 0, 0, 0))
     sd = ImageDraw.Draw(seal)
@@ -279,7 +279,6 @@ def create_license_image(
     return buf.read()
 
 
-
 # ======================
 # DISCORD SENDER
 # ======================
@@ -300,7 +299,6 @@ async def send_license_to_discord(img_data, filename, discord_id):
             embed=embed,
             file=file
         )
-
 
 
 # ======================
@@ -360,7 +358,6 @@ def license_endpoint():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-
 # ======================
 # BOT READY
 # ======================
@@ -368,7 +365,6 @@ def license_endpoint():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
-
 
 
 # ======================
