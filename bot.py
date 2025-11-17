@@ -131,11 +131,17 @@ def create_license_image(
     draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
 
     # ========================
-    # DISPLAY NAME ABOVE AVATAR
+    # DISPLAY NAME ABOVE AVATAR (white now)
     # ========================
     disp_font = load_font(28, bold=True)
     disp_w = draw.textlength(display_name, font=disp_font)
-    draw.text((50 + (200 - disp_w) / 2, 110), display_name, fill=(20, 20, 20), font=disp_font)
+
+    draw.text(
+        (50 + (200 - disp_w) / 2, 110),
+        display_name,
+        fill=(255, 255, 255),  # CHANGED TO WHITE
+        font=disp_font,
+    )
 
     # ========================
     # AVATAR
@@ -163,40 +169,61 @@ def create_license_image(
     blue = (50, 110, 200)
     grey = (40, 40, 40)
 
-    # --- Identity ---
+    # ========================
+    # IDENTITY
+    # ========================
     ix = 290
     iy = 150
     draw.text((ix, iy), "IDENTITY", font=section, fill=blue)
     draw.line((ix, iy + 34, ix + 240, iy + 34), fill=blue, width=3)
 
     iy += 60
-    draw.text((ix, iy), "Name:", font=bold, fill=grey)
-    draw.text((ix + 115, iy), roleplay_name or username, font=normal, fill=grey)
+
+    # NAME
+    label = "Name:"
+    lw = draw.textlength(label, font=bold)
+    draw.text((ix, iy), label, font=bold, fill=grey)
+    draw.text((ix + lw + 8, iy), roleplay_name or username, font=normal, fill=grey)
 
     iy += 34
-    draw.text((ix, iy), "Age:", font=bold, fill=grey)
-    draw.text((ix + 115, iy), age, font=normal, fill=grey)
+    # AGE
+    label = "Age:"
+    lw = draw.textlength(label, font=bold)
+    draw.text((ix, iy), label, font=bold, fill=grey)
+    draw.text((ix + lw + 8, iy), age, font=normal, fill=grey)
 
     iy += 34
-    draw.text((ix, iy), "Address:", font=bold, fill=grey)
-    draw.text((ix + 115, iy), address, font=normal, fill=grey)
+    # ADDRESS
+    label = "Address:"
+    lw = draw.textlength(label, font=bold)
+    draw.text((ix, iy), label, font=bold, fill=grey)
+    draw.text((ix + lw + 8, iy), address, font=normal, fill=grey)
 
-    # --- Physical ---
+    # ========================
+    # PHYSICAL
+    # ========================
     px = 550
     py = 150
     draw.text((px, py), "PHYSICAL", font=section, fill=blue)
     draw.line((px, py + 34, px + 240, py + 34), fill=blue, width=3)
 
     py += 60
-    draw.text((px, py), "Eye Color:", font=bold, fill=grey)
-    draw.text((px + 130, py), eye_color, font=normal, fill=grey)
+
+    # EYE COLOR
+    label = "Eye Color:"
+    lw = draw.textlength(label, font=bold)
+    draw.text((px, py), label, font=bold, fill=grey)
+    draw.text((px + lw + 8, py), eye_color, font=normal, fill=grey)
 
     py += 34
-    draw.text((px, py), "Height:", font=bold, fill=grey)
-    draw.text((px + 130, py), height, font=normal, fill=grey)
+    # HEIGHT
+    label = "Height:"
+    lw = draw.textlength(label, font=bold)
+    draw.text((px, py), label, font=bold, fill=grey)
+    draw.text((px + lw + 8, py), height, font=normal, fill=grey)
 
     # ========================
-    # DMV INFO BOX
+    # DMV BOX
     # ========================
     BOX_Y = 360
     BOX_H = 140
@@ -220,11 +247,11 @@ def create_license_image(
 
     y2 = BOX_Y + 65
 
-    # License Class
+    # LICENSE CLASS
     draw.text((60, y2), "License Class:", font=bold, fill=grey)
-    draw.text((210, y2), "Standard", font=normal, fill=grey)
+    draw.text((225, y2), "Standard", font=normal, fill=grey)  # MOVED RIGHT
 
-    # Issued + Expires
+    # ISSUED + EXPIRES
     y2 += 38
     draw.text((60, y2), "Issued:", font=bold, fill=grey)
     draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=normal, fill=grey)
