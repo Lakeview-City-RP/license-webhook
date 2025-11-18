@@ -113,35 +113,44 @@ def create_license_image(
     draw = ImageDraw.Draw(card)
 
     # ========================
-    # HEADER (PERFECTLY ALIGNED)
+    # HEADER (FIXED — CLEAN CURVE + PERFECT ALIGNMENT)
     # ========================
-    HEADER_H = 120  # slightly taller for smooth curve
+    HEADER_H = 115  # Final correct height
     header = Image.new("RGBA", (W, HEADER_H), (0, 0, 0, 0))
     hd = ImageDraw.Draw(header)
 
-    # gradient fill
+    # Smooth gradient
     for i in range(HEADER_H):
         shade = int(35 + (60 - 35) * (i / HEADER_H))
         hd.line((0, i, W, i), fill=(shade, 70, 160))
 
-    # mask must match outer curve radius + match top radius
+    # Proper curve mask (no overflow, no distortion)
     header_mask = Image.new("L", (W, HEADER_H), 0)
-    header_radius = 120  # SAME AS OUTER CARD
+    header_radius = 120  # same as card
+
+    # Mask fits EXACTLY the header height now
     ImageDraw.Draw(header_mask).rounded_rectangle(
-        (0, 0, W, HEADER_H + 60),  # extend mask down slightly
-        header_radius,
+        (0, 0, W, HEADER_H),
+        radius=header_radius,
         fill=255
     )
+
     header.putalpha(header_mask)
 
-    # position slightly upward so curve meets card edge cleanly
-    card.alpha_composite(header, (0, -10))
+    # Align header flush to the top (no shifting)
+    card.alpha_composite(header, (0, 0))
 
-    # centered title — lifted slightly to sit visually centered
+    # Title centered perfectly
     title_font = load_font(42, bold=True)
     title = "LAKEVIEW CITY DRIVER LICENSE"
     tw = draw.textlength(title, font=title_font)
-    draw.text(((W - tw) / 2, 22), title, fill="white", font=title_font)
+
+    draw.text(
+        ((W - tw) / 2, 26),  # small visual adjustment
+        title,
+        fill="white",
+        font=title_font
+    )
 
 
 
