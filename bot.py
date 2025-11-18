@@ -135,7 +135,7 @@ def create_license_image(
     card.alpha_composite(header, (0, 0))
 
     # Title centered
-    title_font = load_font(36, bold=True)
+    title_font = load_font(39, bold=True)
     title = "LAKEVIEW CITY DRIVER LICENSE"
     tw = draw.textlength(title, font=title_font)
     draw.text(((W - tw) / 2, 24), title, fill="white", font=title_font)
@@ -175,7 +175,7 @@ def create_license_image(
 
     ix = 290
     iy = 160
-    draw.text((ix, iy), "IDENTITY", font=section, fill=blue)
+    draw.text((ix, iy), "IDENTITY:", font=section, fill=blue)
     draw.line((ix, iy + 34, ix + 250, iy + 34), fill=blue, width=3)
 
     iy += 55
@@ -196,7 +196,7 @@ def create_license_image(
 
     px = 550
     py = 160
-    draw.text((px, py), "PHYSICAL", font=section, fill=blue)
+    draw.text((px, py), "PHYSICAL:", font=section, fill=blue)
     draw.line((px, py + 34, px + 250, py + 34), fill=blue, width=3)
 
     py += 55
@@ -225,7 +225,7 @@ def create_license_image(
     draw = ImageDraw.Draw(card)
 
     # DMV TITLE
-    draw.text((60, BOX_Y + 15), "DMV INFO", font=section, fill=blue)
+    draw.text((60, BOX_Y + 15), "DMV INFO:", font=section, fill=blue)
 
     # LINE
     draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
@@ -291,7 +291,7 @@ async def send_license_to_discord(img_data, filename, discord_id):
 
     if channel:
         embed = discord.Embed(
-            title="Lakeview City Roleplay Driver’s License",
+            title="",
             color=0x757575
         )
         embed.set_image(url=f"attachment://{filename}")
