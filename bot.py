@@ -73,13 +73,15 @@ def create_license_image(
     W, H = 820, 520
 
     # ========================
-    # CARD BASE + ROUNDED CORNERS
+    # CARD BASE + ROUNDED CORNERS (MORE CURVED NOW)
     # ========================
     card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     base = Image.new("RGBA", (W, H), (255, 255, 255, 255))
 
     mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 70, fill=255)
+
+    # Increased radius from 70 → 100 for stronger curve
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 100, fill=255)
 
     base.putalpha(mask)
     card = base.copy()
@@ -98,7 +100,6 @@ def create_license_image(
         b = int(220 + 20 * ratio)
         bgd.line((0, y, W, y), fill=(r, g, b, 255))
 
-    # Wave texture
     wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wd = ImageDraw.Draw(wave)
 
@@ -131,7 +132,8 @@ def create_license_image(
     draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
 
     # ========================
-    # DISPLAY NAME ABOVE AVATAR (white now)
+    # DISPLAY NAME ABOVE AVATAR
+    # CHANGED TO BLUE HEADER COLOR
     # ========================
     disp_font = load_font(28, bold=True)
     disp_w = draw.textlength(display_name, font=disp_font)
@@ -139,7 +141,7 @@ def create_license_image(
     draw.text(
         (50 + (200 - disp_w) / 2, 110),
         display_name,
-        fill=(255, 255, 255),  # CHANGED TO WHITE
+        fill=(50, 110, 200),  # SAME BLUE AS HEADER
         font=disp_font,
     )
 
@@ -249,7 +251,7 @@ def create_license_image(
 
     # LICENSE CLASS
     draw.text((60, y2), "License Class:", font=bold, fill=grey)
-    draw.text((225, y2), "Standard", font=normal, fill=grey)  # MOVED RIGHT
+    draw.text((245, y2), "Standard", font=normal, fill=grey)  # MOVED RIGHT AGAIN
 
     # ISSUED + EXPIRES
     y2 += 38
