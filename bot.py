@@ -73,18 +73,20 @@ def create_license_image(
     W, H = 820, 520
 
     # ========================
-    # CARD BASE + ROUNDED CORNERS (MORE CURVED NOW)
+    # CARD BASE WITH TRANSPARENT OUTSIDE
     # ========================
-    card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    base = Image.new("RGBA", (W, H), (255, 255, 255, 255))
+    card = Image.new("RGBA", (W, H), (0, 0, 0, 0))  # fully transparent canvas
 
+    # Create rounded mask for the whole card
     mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 70, fill=255)
 
-    # Increased radius from 70 → 100 for stronger curve
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 100, fill=255)
-
+    # Create background layer (will only show inside rounded area)
+    base = Image.new("RGBA", (W, H), (255, 255, 255, 255))
     base.putalpha(mask)
-    card = base.copy()
+
+    # Apply rounded background
+    card = Image.alpha_composite(card, base)
     draw = ImageDraw.Draw(card)
 
     # ========================
@@ -115,21 +117,28 @@ def create_license_image(
     draw = ImageDraw.Draw(card)
 
     # ========================
-    # HEADER
+    # HEADER (NOW CURVED)
     # ========================
     header = Image.new("RGBA", (W, 95), (0, 0, 0, 0))
     hd = ImageDraw.Draw(header)
 
+    # Blue gradient fill
     for i in range(95):
         shade = int(35 + (60 - 35) * (i / 95))
         hd.line((0, i, W, i), fill=(shade, 70, 160))
 
-    card.alpha_composite(header, (0, 0))
+    # --- Apply SAME rounded mask to header so top corners curve ---
+    header_mask = Image.new("L", (W, 95), 0)
+    ImageDraw.Draw(header_mask).rounded_rectangle(
+        (0, 0, W, 95),
+        radius=70,  # SAME RADIUS AS CARD
+        fill=255
+    )
 
-    title_font = load_font(42, bold=True)
-    title = "LAKEVIEW CITY DRIVER LICENSE"
-    tw = draw.textlength(title, font=title_font)
-    draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
+    # Cut the header into shape
+    header.putalpha(header_mask)
+
+    card.alpha_composite(header, (0, 0))
 
     # ========================
     # DISPLAY NAME ABOVE AVATAR
