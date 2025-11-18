@@ -144,6 +144,7 @@ def create_license_image(
     draw.text(((W - tw) / 2, 22), title, fill="white", font=title_font)
 
 
+
     # ========================
     # DISPLAY NAME ABOVE AVATAR (BLUE HEADER COLOR)
     # ========================
