@@ -73,14 +73,13 @@ def create_license_image(
     W, H = 820, 520
 
     # ========================
-    # CARD BASE (TRANSPARENT OUTSIDE)
+    # CARD BASE WITH CURVED OUTSIDE (TRANSPARENT)
     # ========================
     card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    base = Image.new("RGBA", (W, H), (255, 255, 255, 255))
+    base = Image.new("RGBA", (W, H), (255, 255, 255, 0))
 
     mask = Image.new("L", (W, H), 0)
-    # ⭐ More rounded for top alignment
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), radius=95, fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 120, fill=255)
 
     base.putalpha(mask)
     card = base.copy()
@@ -99,7 +98,6 @@ def create_license_image(
         b = int(220 + 20 * ratio)
         bgd.line((0, y, W, y), fill=(r, g, b, 255))
 
-    # Wave texture
     wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wd = ImageDraw.Draw(wave)
 
@@ -107,34 +105,47 @@ def create_license_image(
         for y in range(0, H, 40):
             wd.arc((x, y, x + 80, y + 80), 0, 180, fill=(255, 255, 255, 25), width=2)
 
-    wave = wave.filter(ImageFilter.GaussianBlur(1.5))
+    wave = wave.filter(ImageFilter.GaussianBlur(1.4))
     bg.alpha_composite(wave)
-    bg.putalpha(mask)
 
+    bg.putalpha(mask)
     card = Image.alpha_composite(card, bg)
     draw = ImageDraw.Draw(card)
 
     # ========================
-    # HEADER (FIXED CURVE + POSITION)
+    # HEADER (PERFECTLY ALIGNED)
     # ========================
-    header_height = 115  # slightly taller to align with curve nicely
-    header = Image.new("RGBA", (W, header_height), (0, 0, 0, 0))
+    HEADER_H = 120  # slightly taller for smooth curve
+    header = Image.new("RGBA", (W, HEADER_H), (0, 0, 0, 0))
     hd = ImageDraw.Draw(header)
 
-    for i in range(header_height):
-        shade = int(35 + (60 - 35) * (i / header_height))
+    # gradient fill
+    for i in range(HEADER_H):
+        shade = int(35 + (60 - 35) * (i / HEADER_H))
         hd.line((0, i, W, i), fill=(shade, 70, 160))
 
-    # Push header down a tiny bit for perfect curve alignment
-    card.alpha_composite(header, (0, -8))
+    # mask must match outer curve radius + match top radius
+    header_mask = Image.new("L", (W, HEADER_H), 0)
+    header_radius = 120  # SAME AS OUTER CARD
+    ImageDraw.Draw(header_mask).rounded_rectangle(
+        (0, 0, W, HEADER_H + 60),  # extend mask down slightly
+        header_radius,
+        fill=255
+    )
+    header.putalpha(header_mask)
 
+    # position slightly upward so curve meets card edge cleanly
+    card.alpha_composite(header, (0, -10))
+
+    # centered title — lifted slightly to sit visually centered
     title_font = load_font(42, bold=True)
     title = "LAKEVIEW CITY DRIVER LICENSE"
     tw = draw.textlength(title, font=title_font)
-    draw.text(((W - tw) / 2, 25), title, fill="white", font=title_font)
+    draw.text(((W - tw) / 2, 22), title, fill="white", font=title_font)
+
 
     # ========================
-    # DISPLAY NAME ABOVE AVATAR (header blue color)
+    # DISPLAY NAME ABOVE AVATAR (BLUE HEADER COLOR)
     # ========================
     disp_font = load_font(28, bold=True)
     disp_w = draw.textlength(display_name, font=disp_font)
@@ -142,7 +153,7 @@ def create_license_image(
     draw.text(
         (50 + (200 - disp_w) / 2, 118),
         display_name,
-        fill=(50, 110, 200),  # header blue
+        fill=(50, 110, 200),  # SAME BLUE AS HEADERS
         font=disp_font,
     )
 
@@ -153,79 +164,59 @@ def create_license_image(
         av = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
         av = av.resize((200, 200))
         mask2 = Image.new("L", (200, 200), 0)
-        ImageDraw.Draw(mask2).rounded_rectangle((0, 0, 200, 200), 35, fill=255)
+        ImageDraw.Draw(mask2).rounded_rectangle((0, 0, 200, 200), 42, fill=255)
         av.putalpha(mask2)
 
         shadow = av.filter(ImageFilter.GaussianBlur(4))
-        card.alpha_composite(shadow, (58, 170))
-        card.alpha_composite(av, (50, 160))
+        card.alpha_composite(shadow, (58, 158))
+        card.alpha_composite(av, (50, 150))
     except:
         pass
 
     # ========================
-    # TEXT
+    # TEXT STYLES
     # ========================
     section = load_font(24, bold=True)
     bold = load_font(22, bold=True)
     normal = load_font(22)
 
     blue = (50, 110, 200)
-    grey = (40, 40, 40)
+    grey = (35, 35, 35)
 
     # ========================
-    # IDENTITY
+    # IDENTITY SECTION
     # ========================
     ix = 290
-    iy = 165
+    iy = 160
     draw.text((ix, iy), "IDENTITY", font=section, fill=blue)
-    draw.line((ix, iy + 34, ix + 240, iy + 34), fill=blue, width=3)
+    draw.line((ix, iy + 34, ix + 250, iy + 34), fill=blue, width=3)
 
-    iy += 60
+    iy += 55
 
-    # NAME
-    label = "Name:"
-    lw = draw.textlength(label, font=bold)
-    draw.text((ix, iy), label, font=bold, fill=grey)
-    draw.text((ix + lw + 10, iy), roleplay_name or username, font=normal, fill=grey)
+    def write_pair(x, y, label, value):
+        lw = draw.textlength(label, font=bold)
+        draw.text((x, y), label, font=bold, fill=grey)
+        draw.text((x + lw + 10, y), value, font=normal, fill=grey)
 
-    iy += 34
-    # AGE
-    label = "Age:"
-    lw = draw.textlength(label, font=bold)
-    draw.text((ix, iy), label, font=bold, fill=grey)
-    draw.text((ix + lw + 10, iy), age, font=normal, fill=grey)
-
-    iy += 34
-    # ADDRESS
-    label = "Address:"
-    lw = draw.textlength(label, font=bold)
-    draw.text((ix, iy), label, font=bold, fill=grey)
-    draw.text((ix + lw + 10, iy), address, font=normal, fill=grey)
+    write_pair(ix, iy, "Name:", roleplay_name or username)
+    write_pair(ix, iy + 34, "Age:", age)
+    write_pair(ix, iy + 68, "Address:", address)
 
     # ========================
-    # PHYSICAL
+    # PHYSICAL SECTION
     # ========================
     px = 550
-    py = 165
+    py = 160
     draw.text((px, py), "PHYSICAL", font=section, fill=blue)
-    draw.line((px, py + 34, px + 240, py + 34), fill=blue, width=3)
+    draw.line((px, py + 34, px + 250, py + 34), fill=blue, width=3)
 
-    py += 60
+    py += 55
 
-    label = "Eye Color:"
-    lw = draw.textlength(label, font=bold)
-    draw.text((px, py), label, font=bold, fill=grey)
-    draw.text((px + lw + 10, py), eye_color, font=normal, fill=grey)
-
-    py += 34
-
-    label = "Height:"
-    lw = draw.textlength(label, font=bold)
-    draw.text((px, py), label, font=bold, fill=grey)
-    draw.text((px + lw + 10, py), height, font=normal, fill=grey)
+    write_pair(px, py, "Eye Color:", eye_color)
+    write_pair(px, py + 34, "Height:", height)
 
     # ========================
-    # DMV BOX
+    # DMV INFO BOX
     # ========================
     BOX_Y = 360
     BOX_H = 140
@@ -235,8 +226,8 @@ def create_license_image(
 
     bd.rounded_rectangle(
         (0, 0, W - 80, BOX_H),
-        radius=35,
-        fill=(200, 220, 255, 100),
+        radius=45,
+        fill=(200, 220, 255, 90),
         outline=(80, 140, 255, 180),
         width=3,
     )
@@ -249,11 +240,11 @@ def create_license_image(
 
     y2 = BOX_Y + 65
 
-    # LICENSE CLASS
+    # License class
     draw.text((60, y2), "License Class:", font=bold, fill=grey)
-    draw.text((240, y2), "Standard", font=normal, fill=grey)  # moved right slightly
+    draw.text((245, y2), "Standard", font=normal, fill=grey)  # moved slightly right
 
-    # ISSUED + EXPIRES
+    # Issued + expires
     y2 += 38
     draw.text((60, y2), "Issued:", font=bold, fill=grey)
     draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=normal, fill=grey)
@@ -268,7 +259,7 @@ def create_license_image(
     sd = ImageDraw.Draw(seal)
 
     cx, cy = 48, 48
-    R1, R2 = 46, 20
+    R1, R2 = 44, 19
     pts = []
 
     for i in range(16):
@@ -300,7 +291,8 @@ async def send_license_to_discord(img_data, filename, discord_id):
 
     if channel:
         embed = discord.Embed(
-            title="Lakeview City Roleplay Driver’s License", color=0x757575
+            title="Lakeview City Roleplay Driver’s License",
+            color=0x757575
         )
         embed.set_image(url=f"attachment://{filename}")
 
@@ -383,7 +375,6 @@ async def on_ready():
 
 def run_bot():
     bot.run(TOKEN)
-
 
 if __name__ == "__main__":
     Thread(target=run_bot, daemon=True).start()
