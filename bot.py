@@ -377,6 +377,11 @@ def license_endpoint():
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
 
+    async def setup_hook():
+        await bot.load_extension("cogs.economy")
+
+    bot.setup_hook = setup_hook
+
 
 # ======================
 # RUN EVERYTHING
