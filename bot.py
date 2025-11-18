@@ -16,9 +16,9 @@ import discord
 from discord.ext import commands
 
 
-# =======================
+# ============================================================
 # TOKEN / DISCORD SETUP
-# =======================
+# ============================================================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -36,9 +36,9 @@ intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 
-# ======================
-# FONT LOADING HANDLER
-# ======================
+# ============================================================
+# FONT LOADING
+# ============================================================
 
 def load_font(size: int, bold: bool = False):
     files = [
@@ -53,9 +53,9 @@ def load_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-# =================================
-# LICENSE CARD IMAGE GENERATOR
-# =================================
+# ============================================================
+# LICENSE IMAGE GENERATOR (UPDATED HEADER + DMV NAME)
+# ============================================================
 
 def create_license_image(
     username,
@@ -72,25 +72,19 @@ def create_license_image(
 ):
     W, H = 820, 520
 
-    # ========================
-    # CARD BASE WITH CURVED OUTSIDE (TRANSPARENT)
-    # ========================
+    # Rounded base card
     card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     base = Image.new("RGBA", (W, H), (255, 255, 255, 0))
 
     mask = Image.new("L", (W, H), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, W, H), 120, fill=255)
-
     base.putalpha(mask)
     card = base.copy()
     draw = ImageDraw.Draw(card)
 
-    # ========================
-    # BACKGROUND GRADIENT + WAVES
-    # ========================
+    # Background gradient + waves
     bg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     bgd = ImageDraw.Draw(bg)
-
     for y in range(H):
         ratio = y / H
         r = int(150 + 40 * ratio)
@@ -100,79 +94,49 @@ def create_license_image(
 
     wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wd = ImageDraw.Draw(wave)
-
     for x in range(0, W, 40):
         for y in range(0, H, 40):
             wd.arc((x, y, x + 80, y + 80), 0, 180, fill=(255, 255, 255, 25), width=2)
-
     wave = wave.filter(ImageFilter.GaussianBlur(1.4))
     bg.alpha_composite(wave)
-
     bg.putalpha(mask)
     card = Image.alpha_composite(card, bg)
     draw = ImageDraw.Draw(card)
 
-    # ========================
-    # HEADER (FIXED — CLEAN CURVE + PERFECT ALIGNMENT)
-    # ========================
-    HEADER_H = 115  # Final correct height
+    # ============================================================
+    # UPDATED HEADER (RECTANGLE, FULL WIDTH)
+    # ============================================================
+
+    HEADER_H = 95  # Slightly smaller since it's now a rectangle
     header = Image.new("RGBA", (W, HEADER_H), (0, 0, 0, 0))
     hd = ImageDraw.Draw(header)
 
-    # Smooth gradient
+    # Gradient fill
     for i in range(HEADER_H):
         shade = int(35 + (60 - 35) * (i / HEADER_H))
         hd.line((0, i, W, i), fill=(shade, 70, 160))
 
-    # Proper curve mask (no overflow, no distortion)
-    header_mask = Image.new("L", (W, HEADER_H), 0)
-    header_radius = 120  # same as card
-
-    # Mask fits EXACTLY the header height now
-    ImageDraw.Draw(header_mask).rounded_rectangle(
-        (0, 0, W, HEADER_H),
-        radius=header_radius,
-        fill=255
-    )
-
-    header.putalpha(header_mask)
-
-    # Align header flush to the top (no shifting)
+    # Paste header at absolute top (covers curved top cleanly)
     card.alpha_composite(header, (0, 0))
 
-    # Title centered perfectly
+    # Header title
     title_font = load_font(42, bold=True)
     title = "LAKEVIEW CITY DRIVER LICENSE"
     tw = draw.textlength(title, font=title_font)
+    draw.text(((W - tw) / 2, 24), title, fill="white", font=title_font)
 
-    draw.text(
-        ((W - tw) / 2, 26),  # small visual adjustment
-        title,
-        fill="white",
-        font=title_font
-    )
+    # ============================================================
+    # REMOVE DISPLAY NAME ABOVE AVATAR — YOU REQUESTED CHANGE
+    # ============================================================
 
-
-
-    # ========================
-    # DISPLAY NAME ABOVE AVATAR (BLUE HEADER COLOR)
-    # ========================
-    disp_font = load_font(28, bold=True)
-    disp_w = draw.textlength(display_name, font=disp_font)
-
-    draw.text(
-        (50 + (200 - disp_w) / 2, 118),
-        display_name,
-        fill=(50, 110, 200),  # SAME BLUE AS HEADERS
-        font=disp_font,
-    )
-
-    # ========================
+    # ============================================================
     # AVATAR
-    # ========================
+    # ============================================================
+
     try:
         av = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
         av = av.resize((200, 200))
+
         mask2 = Image.new("L", (200, 200), 0)
         ImageDraw.Draw(mask2).rounded_rectangle((0, 0, 200, 200), 42, fill=255)
         av.putalpha(mask2)
@@ -183,24 +147,20 @@ def create_license_image(
     except:
         pass
 
-    # ========================
-    # TEXT STYLES
-    # ========================
+    # ============================================================
+    # INFORMATION SECTIONS
+    # ============================================================
+
     section = load_font(24, bold=True)
     bold = load_font(22, bold=True)
     normal = load_font(22)
-
     blue = (50, 110, 200)
     grey = (35, 35, 35)
 
-    # ========================
-    # IDENTITY SECTION
-    # ========================
     ix = 290
     iy = 160
     draw.text((ix, iy), "IDENTITY", font=section, fill=blue)
     draw.line((ix, iy + 34, ix + 250, iy + 34), fill=blue, width=3)
-
     iy += 55
 
     def write_pair(x, y, label, value):
@@ -212,21 +172,20 @@ def create_license_image(
     write_pair(ix, iy + 34, "Age:", age)
     write_pair(ix, iy + 68, "Address:", address)
 
-    # ========================
-    # PHYSICAL SECTION
-    # ========================
+    # Physical
     px = 550
     py = 160
     draw.text((px, py), "PHYSICAL", font=section, fill=blue)
     draw.line((px, py + 34, px + 250, py + 34), fill=blue, width=3)
-
     py += 55
 
     write_pair(px, py, "Eye Color:", eye_color)
     write_pair(px, py + 34, "Height:", height)
-    # ========================
-    # DMV INFO BOX
-    # ========================
+
+    # ============================================================
+    # DMV BOX
+    # ============================================================
+
     BOX_Y = 360
     BOX_H = 140
 
@@ -240,20 +199,36 @@ def create_license_image(
         outline=(80, 140, 255, 180),
         width=3,
     )
-
     card.alpha_composite(box, (40, BOX_Y))
     draw = ImageDraw.Draw(card)
 
+    # DMV INFO TITLE
     draw.text((60, BOX_Y + 15), "DMV INFO", font=section, fill=blue)
+
+    # BLUE LINE
     draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
 
+    # ============================================================
+    # CENTERED USERNAME INSIDE DMV BOX
+    # ============================================================
+
+    username_font = load_font(24, bold=False)
+    uname_w = draw.textlength(username, font=username_font)
+
+    box_center_x = 40 + (W - 80) // 2  # Horizontal center of DMV box
+    name_x = box_center_x - (uname_w / 2)
+    name_y = BOX_Y + 15  # aligned with DMV INFO vertically
+
+    draw.text((name_x, name_y), username, font=username_font, fill=grey)
+
+    # ============================================================
+    # DMV DETAILS
+    # ============================================================
+
     y2 = BOX_Y + 65
-
-    # License class
     draw.text((60, y2), "License Class:", font=bold, fill=grey)
-    draw.text((245, y2), "Standard", font=normal, fill=grey)  # moved slightly right
+    draw.text((245, y2), "Standard", font=normal, fill=grey)
 
-    # Issued + expires
     y2 += 38
     draw.text((60, y2), "Issued:", font=bold, fill=grey)
     draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=normal, fill=grey)
@@ -261,36 +236,29 @@ def create_license_image(
     draw.text((330, y2), "Expires:", font=bold, fill=grey)
     draw.text((430, y2), expires.strftime("%Y-%m-%d"), font=normal, fill=grey)
 
-    # ========================
-    # STAR SEAL
-    # ========================
+    # Seal
     seal = Image.new("RGBA", (95, 95), (0, 0, 0, 0))
     sd = ImageDraw.Draw(seal)
-
     cx, cy = 48, 48
     R1, R2 = 44, 19
     pts = []
-
     for i in range(16):
         ang = math.radians(i * 22.5)
         r = R1 if i % 2 == 0 else R2
         pts.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
-
     sd.polygon(pts, fill=(40, 90, 180), outline="white", width=3)
     seal = seal.filter(ImageFilter.GaussianBlur(0.8))
-
     card.alpha_composite(seal, (W - 150, BOX_Y + 10))
 
-    # EXPORT
     buf = io.BytesIO()
     card.save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
 
 
-# ======================
-# DISCORD SENDER
-# ======================
+# ============================================================
+# SEND LICENSE TO DISCORD
+# ============================================================
 
 async def send_license_to_discord(img_data, filename, discord_id):
     await bot.wait_until_ready()
@@ -312,9 +280,9 @@ async def send_license_to_discord(img_data, filename, discord_id):
         )
 
 
-# ======================
+# ============================================================
 # FLASK API
-# ======================
+# ============================================================
 
 app = Flask(__name__)
 
@@ -369,18 +337,20 @@ def license_endpoint():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# ======================
-# BOT READY
-# ======================
+# ============================================================
+# BOT READY + COG LOADING
+# ============================================================
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
 
-    async def setup_hook():
-        await bot.load_extension("cogs.economy")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Slash commands synced: {len(synced)}")
+    except Exception as e:
+        print("Slash sync error:", e)
 
-    bot.setup_hook = setup_hook
 
 async def setup_hook():
     await bot.load_extension("cogs.economy")
@@ -388,9 +358,9 @@ async def setup_hook():
 bot.setup_hook = setup_hook
 
 
-# ======================
-# RUN EVERYTHING
-# ======================
+# ============================================================
+# RUN BOT + FLASK
+# ============================================================
 
 def run_bot():
     bot.run(TOKEN)
