@@ -382,6 +382,11 @@ async def on_ready():
 
     bot.setup_hook = setup_hook
 
+async def setup_hook():
+    await bot.load_extension("cogs.economy")
+
+bot.setup_hook = setup_hook
+
 
 # ======================
 # RUN EVERYTHING
