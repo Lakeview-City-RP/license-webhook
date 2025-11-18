@@ -224,7 +224,6 @@ def create_license_image(
 
     write_pair(px, py, "Eye Color:", eye_color)
     write_pair(px, py + 34, "Height:", height)
-
     # ========================
     # DMV INFO BOX
     # ========================
