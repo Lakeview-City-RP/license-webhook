@@ -135,7 +135,7 @@ def create_license_image(
     card.alpha_composite(header, (0, 0))
 
     # Title centered
-    title_font = load_font(42, bold=True)
+    title_font = load_font(32, bold=True)
     title = "LAKEVIEW CITY DRIVER LICENSE"
     tw = draw.textlength(title, font=title_font)
     draw.text(((W - tw) / 2, 24), title, fill="white", font=title_font)
