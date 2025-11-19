@@ -67,6 +67,51 @@ def load_font(size: int, bold: bool = False):
 
 
 # ============================================================
+# MESH GENERATOR (BLUE OR ORANGE)
+# ============================================================
+
+def draw_mesh(draw: ImageDraw, W, H, color):
+    spacing = 38
+    for y in range(0, H, spacing):
+        for x in range(0, W, spacing):
+            # light scale-like curve pattern
+            draw.arc(
+                (x - spacing, y - spacing, x + spacing, y + spacing),
+                start=0,
+                end=180,
+                fill=color,
+                width=2
+            )
+
+
+# ============================================================
+# STAR DRAWING (BOTTOM RIGHT EXACT POSITION)
+# ============================================================
+
+def draw_star():
+    """Draws the DMV star watermark exactly like the sample."""
+    size = 110
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    cx, cy = size // 2, size // 2
+    outer_r = 50
+    inner_r = 20
+    points = []
+
+    for i in range(16):
+        angle = math.radians(i * 22.5)
+        r = outer_r if i % 2 == 0 else inner_r
+        x = cx + r * math.cos(angle)
+        y = cy + r * math.sin(angle)
+        points.append((x, y))
+
+    draw.polygon(points, fill=(40, 90, 180), outline="white", width=3)
+
+    return img
+
+
+# ============================================================
 # LICENSE IMAGE GENERATOR
 # ============================================================
 
@@ -95,7 +140,7 @@ def create_license_image(
     ImageDraw.Draw(full_mask).rounded_rectangle((0, 0, W, H), 120, fill=255)
     card.putalpha(full_mask)
 
-    # Background gradient
+    # BACKGROUND GRADIENT
     bg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     bgd = ImageDraw.Draw(bg)
     for y in range(H):
@@ -105,14 +150,18 @@ def create_license_image(
         b = int(220 + 20 * ratio)
         bgd.line((0, y, W, y), fill=(r, g, b, 255))
 
-    # Background waves
-    wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    wd = ImageDraw.Draw(wave)
-    for x in range(0, W, 40):
-        for y in range(0, H, 40):
-            wd.arc((x, y, x + 80, y + 80), 0, 180, fill=(255, 255, 255, 25), width=2)
-    wave = wave.filter(ImageFilter.GaussianBlur(1.4))
-    bg.alpha_composite(wave)
+    # MESH OVERLAY
+    mesh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    md = ImageDraw.Draw(mesh)
+
+    if license_type == "provisional":
+        mesh_color = (245, 160, 60, 40)  # Soft orange
+    else:
+        mesh_color = (60, 120, 200, 45)  # Blue
+
+    draw_mesh(md, W, H, mesh_color)
+    mesh = mesh.filter(ImageFilter.GaussianBlur(0.6))
+    bg.alpha_composite(mesh)
 
     # HEADER
     HEADER_H = 95
@@ -121,21 +170,24 @@ def create_license_image(
 
     for i in range(HEADER_H):
         if license_type == "provisional":
-            # Soft Orange
+            # Soft Orange Gradient
             r1, r2 = 245, 160
             g1, g2 = 160, 100
-            b1, b2 = 60, 25
+            b1, b2 = 60, 20
             rr = int(r1 + (r2 - r1) * (i / HEADER_H))
             gg = int(g1 + (g2 - g1) * (i / HEADER_H))
             bb = int(b1 + (b2 - b1) * (i / HEADER_H))
             hd.line((0, i, W, i), fill=(rr, gg, bb))
         else:
-            # Blue gradient
+            # Blue header
             shade = int(35 + (60 - 35) * (i / HEADER_H))
             hd.line((0, i, W, i), fill=(shade, 70, 160))
 
     header.putalpha(full_mask.crop((0, 0, W, HEADER_H)))
-    card.alpha_composite(header, (0, 0))
+    bg.alpha_composite(header, (0, 0))
+
+    # Apply bg to card
+    card = Image.alpha_composite(card, bg)
     draw = ImageDraw.Draw(card)
 
     # TITLE
@@ -191,7 +243,7 @@ def create_license_image(
     write_pair(px, py, "Eye Color:", eye_color)
     write_pair(px, py + 34, "Height:", height)
 
-    # DMV INFO BOX
+    # DMV BOX
     BOX_Y, BOX_H = 360, 140
     box = Image.new("RGBA", (W - 80, BOX_H), (0, 0, 0, 0))
     bd = ImageDraw.Draw(box)
@@ -208,7 +260,7 @@ def create_license_image(
     draw.text((60, BOX_Y + 15), "DMV INFO:", font=section, fill=blue)
     draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
 
-    # Center username
+    # Center username in DMV box
     uname_font = load_font(24, bold=True)
     uname_w = draw.textlength(username, font=uname_font)
     center_x = 40 + (W - 80) // 2
@@ -226,6 +278,10 @@ def create_license_image(
 
     draw.text((330, y2), "Expires:", font=bold, fill=grey)
     draw.text((430, y2), expires.strftime("%Y-%m-%d"), font=normal, fill=grey)
+
+    # STAR (BOTTOM RIGHT)
+    star = draw_star()
+    card.alpha_composite(star, (W - 150, BOX_Y + 10))
 
     buf = io.BytesIO()
     card.save(buf, format="PNG")
@@ -251,46 +307,42 @@ async def send_dm_license(discord_id, img_bytes, filename, roleplay_name, licens
     )
 
     embed.set_thumbnail(url=DM_THUMBNAIL)
-    embed.set_footer(text=EMBED_FOOTER)
-
-    if guild and guild.icon:
-        embed.set_image(url=guild.icon.url)
+    embed.set_footer(
+        text=EMBED_FOOTER,
+        icon_url=guild.icon.url if guild and guild.icon else None
+    )
 
     issued_ts = int(issued.timestamp())
     expires_ts = int(expires.timestamp())
 
-    # --------------------------------------------------------
-    # PROVISIONAL DM CONTENT
-    # --------------------------------------------------------
+    # PROVISIONAL DESCRIPTION
     if license_type == "provisional":
         embed.description = (
             f"> Greetings, <@{discord_id}>.\n"
-            f"> Our services have automatically created your provisional license, this is valid until "
+            f"> Your provisional license is valid until "
             f"**{expires.strftime('%B %d, %Y at %I:%M %p UTC')}** (<t:{expires_ts}:F>).\n"
-            f"> To generate an official license that is permanent, check out "
+            f"> Permanent license here: "
             f"https://discord.com/channels/1328475009542258688/1437618758440063128.\n\n"
-            f"> Please note that violating traffic regulations which equate to you being cited or gathering points "
-            f"will result in an immediate removal of this license, and will require you to complete a formal driving test "
-            f"before receiving an official drivers license.\n\n"
-            f"> You have until this provisional license expires to create an official license. Not having one will get you arrested.\n\n"
+            f"> Violations will remove this license and require a driving test.\n"
+            f"> You must obtain an official license before it expires.\n\n"
             f"> Thank you **{roleplay_name}** for working with the City of Lakeview.\n"
             f"Signed, Department of Motor Vehicles"
         )
 
-    # --------------------------------------------------------
-    # STANDARD DM CONTENT
-    # --------------------------------------------------------
+    # STANDARD DESCRIPTION
     else:
         embed.description = (
             f"> Greetings, <@{discord_id}>.\n"
-            f"> Our services have generated your Drivers License, this is permanent. "
-            f"We advise you follow all traffic regulations set — gaining a total of 15 points on your license "
-            f"will result in mandatory retraining (driving test).\n\n"
-            f"> Your license was generated at **{issued.strftime('%B %d, %Y at %I:%M %p UTC')}** "
+            f"> Your permanent Drivers License has been issued.\n"
+            f"> Accumulating 15 points requires a mandatory driving test.\n\n"
+            f"> Generated at **{issued.strftime('%B %d, %Y at %I:%M %p UTC')}** "
             f"(<t:{issued_ts}:F>).\n\n"
             f"> Thank you **{roleplay_name}** for working with the City of Lakeview.\n"
             f"Signed, Department of Motor Vehicles"
         )
+
+    # Add the license image to the embed
+    embed.set_image(url=f"attachment://{filename}")
 
     file = discord.File(io.BytesIO(img_bytes), filename=filename)
     await user.send(content=f"<@{discord_id}>", embed=embed, file=file)
@@ -300,10 +352,14 @@ async def send_dm_license(discord_id, img_bytes, filename, roleplay_name, licens
 # LOG MESSAGE
 # ============================================================
 
-async def log_license(discord_id):
+async def log_license(discord_id, img_bytes, filename):
     channel = bot.get_channel(LOG_CHANNEL_ID)
     if channel:
-        await channel.send(f"License issued to: <@{discord_id}>")
+        file = discord.File(io.BytesIO(img_bytes), filename=filename)
+        await channel.send(
+            content=f"License issued to: <@{discord_id}> (ID: {discord_id})",
+            file=file
+        )
 
 
 # ============================================================
@@ -329,7 +385,6 @@ def license_endpoint():
         height = data.get("height")
         discord_id = data.get("discord_id")
 
-        # "standard" or "provisional"
         license_type = data.get("license_type", "standard")
 
         if not username or not avatar:
@@ -337,7 +392,6 @@ def license_endpoint():
 
         avatar_bytes = requests.get(avatar).content
 
-        # Expiration logic
         issued = datetime.utcnow()
         expires = issued + timedelta(days=3 if license_type == "provisional" else 150)
 
@@ -361,7 +415,9 @@ def license_endpoint():
         bot.loop.create_task(
             send_dm_license(discord_id, img, filename, roleplay, license_type, issued, expires)
         )
-        bot.loop.create_task(log_license(discord_id))
+        bot.loop.create_task(
+            log_license(discord_id, img, filename)
+        )
 
         return jsonify({"status": "ok"}), 200
 
