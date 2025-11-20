@@ -1,116 +1,69 @@
 from __future__ import annotations
 
-# ============================================================
-# IMPORTS
-# ============================================================
-
+# --- stdlib ---
 import os
 import io
 import math
 from datetime import datetime, timedelta
 from threading import Thread
 
+# --- third-party ---
 import requests
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from flask import Flask, request, jsonify
 
+# --- discord.py ---
 import discord
 from discord.ext import commands
 
+
 # ============================================================
-# CONFIGURATION
+# TOKEN / DISCORD SETUP
 # ============================================================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+
 if not TOKEN and os.path.exists("token.txt"):
-    TOKEN = open("token.txt", "r").read().strip()
+    with open("token.txt", "r", encoding="utf-8") as f:
+        TOKEN = f.read().strip()
 
 if not TOKEN:
-    raise RuntimeError("Discord token not found.")
+    raise RuntimeError("❌ Discord token not found!")
 
 PREFIX = "?"
-SERVER_ID = 1328475009542258688
-LOG_CHANNEL_ID = 1436890841703645285
-
-DM_THUMBNAIL = (
-    "https://media.discordapp.net/attachments/1377401295220117746/"
-    "1437245076945375393/WHITELISTED_NO_BACKGROUND.png?format=png&quality=lossless"
-)
-
-EMBED_COLOR = 0x757575
-EMBED_FOOTER = "Lakeview City Whitelisted Automation Services"
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
+
 
 # ============================================================
 # FONT LOADING
 # ============================================================
 
 def load_font(size: int, bold: bool = False):
-    paths = [
-        "arialbd.ttf" if bold else "arial.ttf",
+    files = [
+        ("arialbd.ttf" if bold else "arial.ttf"),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     ]
-    for p in paths:
+    for f in files:
         try:
-            return ImageFont.truetype(p, size)
+            return ImageFont.truetype(f, size)
         except:
             pass
     return ImageFont.load_default()
 
-# ============================================================
-# MESH (SCALLOP PATTERN)
-# ============================================================
-
-def draw_mesh(draw: ImageDraw.ImageDraw, W: int, H: int):
-    spacing = 46
-    color = (255, 255, 255, 33)
-    for y in range(0, H + spacing, spacing):
-        for x in range(0, W + spacing, spacing):
-            draw.arc(
-                (x - spacing, y - spacing, x + spacing, y + spacing),
-                0,
-                180,
-                fill=color,
-                width=2,
-            )
 
 # ============================================================
-# STAR ICON
-# ============================================================
-
-def draw_star():
-    size = 110
-    img = Image.new("RGBA", (size, size), (0,0,0,0))
-    d = ImageDraw.Draw(img)
-
-    cx = cy = size // 2
-    outer = 50
-    inner = 20
-    pts = []
-
-    for i in range(16):
-        ang = math.radians(i * 22.5)
-        r = outer if i % 2 == 0 else inner
-        pts.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
-
-    d.polygon(pts, fill=(40, 90, 180), outline="white", width=3)
-    return img.filter(ImageFilter.GaussianBlur(0.7))
-
-# ============================================================
-# LICENSE IMAGE GENERATOR
+# LICENSE IMAGE GENERATOR (STANDARD + PROVISIONAL)
 # ============================================================
 
 def create_license_image(
     username,
     avatar_bytes,
     display_name,
-    roleplay,
+    roleplay_name,
     age,
     address,
     eye_color,
@@ -118,248 +71,253 @@ def create_license_image(
     issued,
     expires,
     lic_num,
-    license_type="standard",  # "standard" or "provisional"
+    license_type
 ):
-    # Final reference-correct canvas sizes
     W, H = 820, 520
 
-    roleplay = roleplay or username
-    age_str = str(age or "")
-    address_str = str(address or "")
-    eye_str = str(eye_color or "")
-    height_str = str(height or "")
+    # Coerce to strings
+    username_str = str(username) if username else ""
+    roleplay_name_str = str(roleplay_name) if roleplay_name else username_str
+    age_str = str(age) if age else ""
+    address_str = str(address) if address else ""
+    eye_color_str = str(eye_color) if eye_color else ""
+    height_str = str(height) if height else ""
+    lic_num_str = str(lic_num)
 
-    # ===================== Rounded card mask =====================
-    base = Image.new("RGBA", (W, H), (255,255,255,0))
-    mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0,0,W,H), 120, fill=255)
-    base.putalpha(mask)
+    # Base rounded card
+    card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    full_mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(full_mask).rounded_rectangle((0, 0, W, H), 120, fill=255)
 
-    # ===================== Background gradient =====================
-    bg = Image.new("RGBA", (W, H), (0,0,0,0))
-    gd = ImageDraw.Draw(bg)
+    base = Image.new("RGBA", (W, H), (255, 255, 255, 0))
+    base.putalpha(full_mask)
+    card = base.copy()
+    draw = ImageDraw.Draw(card)
+
+    # =======================
+    # Background gradient
+    # =======================
+
+    bg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    bgd = ImageDraw.Draw(bg)
 
     for y in range(H):
-        r = int(150 + 40 * (y/H))
-        g = int(180 + 50 * (y/H))
-        b = int(220 + 20 * (y/H))
-        gd.line((0,y,W,y), fill=(r,g,b))
+        ratio = y / H
+        r = int(150 + 40 * ratio)
+        g = int(180 + 50 * ratio)
+        b = int(220 + 20 * ratio)
+        bgd.line((0, y, W, y), fill=(r, g, b))
 
-    # ===================== Header =====================
+    # =======================
+    # MESH (color depends on type)
+    # =======================
+
+    wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    wd = ImageDraw.Draw(wave)
+
+    if license_type == "provisional":
+        mesh_color = (255, 160, 40, 40)  # soft orange mesh
+    else:
+        mesh_color = (255, 255, 255, 40)  # white mesh
+
+    for x in range(0, W, 40):
+        for y in range(0, H, 40):
+            wd.arc((x, y, x + 80, y + 80), 0, 180, fill=mesh_color, width=2)
+
+    wave = wave.filter(ImageFilter.GaussianBlur(1.2))
+    bg.alpha_composite(wave)
+
+    bg.putalpha(full_mask)
+    card = Image.alpha_composite(card, bg)
+    draw = ImageDraw.Draw(card)
+
+    # ============================================================
+    # HEADER (Blue or Orange)
+    # ============================================================
+
     HEADER_H = 95
-    header = Image.new("RGBA", (W, HEADER_H), (0,0,0,0))
+
+    if license_type == "provisional":
+        header_color_start = (225, 150, 30)
+        header_color_end = (255, 185, 60)
+        title_text = "LAKEVIEW CITY PROVISIONAL LICENSE"
+        title_font = load_font(35, bold=True)
+    else:
+        header_color_start = (35, 70, 160)
+        header_color_end = (60, 100, 190)
+        title_text = "LAKEVIEW CITY DRIVER LICENSE"
+        title_font = load_font(39, bold=True)
+
+    header = Image.new("RGBA", (W, HEADER_H), (0, 0, 0, 0))
     hd = ImageDraw.Draw(header)
 
-    if license_type == "provisional":
-        # Correct soft gold/orange
-        for i in range(HEADER_H):
-            ratio = i / HEADER_H
-            rr = int(240 - 40 * ratio)
-            gg = int(180 - 70 * ratio)
-            bb = int(90 - 60 * ratio)
-            hd.line((0,i,W,i), fill=(rr,gg,bb))
-    else:
-        # Correct DMV blue header
-        for i in range(HEADER_H):
-            shade = int(35 + (60 - 35) * (i / HEADER_H))
-            hd.line((0,i,W,i), fill=(shade,70,160))
+    for i in range(HEADER_H):
+        r = int(header_color_start[0] + (header_color_end[0] - header_color_start[0]) * (i / HEADER_H))
+        g = int(header_color_start[1] + (header_color_end[1] - header_color_start[1]) * (i / HEADER_H))
+        b = int(header_color_start[2] + (header_color_end[2] - header_color_start[2]) * (i / HEADER_H))
+        hd.line((0, i, W, i), fill=(r, g, b))
 
-    header.putalpha(mask.crop((0,0,W,HEADER_H)))
-    bg.alpha_composite(header)
+    header_mask = full_mask.crop((0, 0, W, HEADER_H))
+    header.putalpha(header_mask)
+    card.alpha_composite(header, (0, 0))
 
-    # ===================== Mesh (above header) =====================
-    mesh_layer = Image.new("RGBA", (W, H), (0,0,0,0))
-    draw_mesh(ImageDraw.Draw(mesh_layer), W, H)
-    mesh_layer = mesh_layer.filter(ImageFilter.GaussianBlur(0.6))
-    bg.alpha_composite(mesh_layer)
+    tw = draw.textlength(title_text, font=title_font)
+    draw.text(((W - tw) / 2, 24), title_text, fill="white", font=title_font)
 
-    # ===================== Merge base/background =====================
-    card = Image.alpha_composite(base, bg)
-    d = ImageDraw.Draw(card)
+    # ============================================================
+    # AVATAR
+    # ============================================================
 
-    # ===================== Title =====================
-    if license_type == "provisional":
-        title = "LAKEVIEW CITY PROVISIONAL LICENSE"
-        title_font = load_font(30, True)
-    else:
-        title = "LAKEVIEW CITY DRIVER LICENSE"
-        title_font = load_font(39, True)
-
-    tw = d.textlength(title, font=title_font)
-    d.text(((W - tw) / 2, 24), title, fill="white", font=title_font)
-
-    # ===================== Avatar =====================
     try:
         av = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-        av = av.resize((200,200))
-        m2 = Image.new("L", (200,200), 0)
-        ImageDraw.Draw(m2).rounded_rectangle((0,0,200,200), 42, fill=255)
-        av.putalpha(m2)
+        av = av.resize((200, 200))
+        mask2 = Image.new("L", (200, 200), 0)
+        ImageDraw.Draw(mask2).rounded_rectangle((0, 0, 200, 200), 42, fill=255)
+        av.putalpha(mask2)
+
         shadow = av.filter(ImageFilter.GaussianBlur(4))
-        card.alpha_composite(shadow, (58,158))
-        card.alpha_composite(av, (50,150))
+        card.alpha_composite(shadow, (58, 158))
+        card.alpha_composite(av, (50, 150))
     except:
         pass
 
-    # ===================== Text styles =====================
-    sec = load_font(24, True)
-    bold = load_font(22, True)
-    normal = load_font(22)
-    blue = (50,110,200)
-    grey = (35,35,35)
+    # ============================================================
+    # TEXT STYLES
+    # ============================================================
 
-    # ===================== Identity =====================
-    ix, iy = 290, 160
-    d.text((ix,iy), "IDENTITY:", font=sec, fill=blue)
-    d.line((ix, iy+34, ix+250, iy+34), fill=blue, width=3)
+    section = load_font(24, bold=True)
+    boldf = load_font(22, bold=True)
+    normal = load_font(22)
+    blue = (50, 110, 200)
+    grey = (35, 35, 35)
+
+    # ============================================================
+    # IDENTITY
+    # ============================================================
+
+    ix = 290
+    iy = 160
+    draw.text((ix, iy), "IDENTITY:", font=section, fill=blue)
+    draw.line((ix, iy + 34, ix + 250, iy + 34), fill=blue, width=3)
+
     iy += 55
 
-    def pair(x, y, label, value):
-        lw = d.textlength(label, font=bold)
-        d.text((x,y), label, font=bold, fill=grey)
-        d.text((x+lw+10,y), value, font=normal, fill=grey)
+    def write_pair(x, y, label, value):
+        lw = draw.textlength(label, font=boldf)
+        draw.text((x, y), label, font=boldf, fill=grey)
+        draw.text((x + lw + 10, y), value, font=normal, fill=grey)
 
-    pair(ix, iy, "Name:", roleplay)
-    pair(ix, iy+34, "Age:", age_str)
-    pair(ix, iy+68, "Address:", address_str)
+    write_pair(ix, iy, "Name:", roleplay_name_str)
+    write_pair(ix, iy + 34, "Age:", age_str)
+    write_pair(ix, iy + 68, "Address:", address_str)
 
-    # ===================== Physical =====================
-    px, py = 550, 160
-    d.text((px,py), "PHYSICAL:", font=sec, fill=blue)
-    d.line((px,py+34, px+250, py+34), fill=blue, width=3)
+    # ============================================================
+    # PHYSICAL
+    # ============================================================
+
+    px = 550
+    py = 160
+    draw.text((px, py), "PHYSICAL:", font=section, fill=blue)
+    draw.line((px, py + 34, px + 250, py + 34), fill=blue, width=3)
+
     py += 55
+    write_pair(px, py, "Eye Color:", eye_color_str)
+    write_pair(px, py + 34, "Height:", height_str)
 
-    pair(px, py, "Eye Color:", eye_str)
-    pair(px, py+34, "Height:", height_str)
+    # ============================================================
+    # DMV BOX
+    # ============================================================
 
-    # ===================== DMV Info Box =====================
     BOX_Y = 360
     BOX_H = 140
 
-    box = Image.new("RGBA", (W-80, BOX_H), (0,0,0,0))
+    box = Image.new("RGBA", (W - 80, BOX_H), (0, 0, 0, 0))
     bd = ImageDraw.Draw(box)
-
     bd.rounded_rectangle(
-        (0,0,W-80,BOX_H),
+        (0, 0, W - 80, BOX_H),
         radius=45,
-        fill=(200,220,255,80),
-        outline=(80,140,255,180),
-        width=3
+        fill=(200, 220, 255, 90),
+        outline=(80, 140, 255, 180),
+        width=3,
     )
-
     card.alpha_composite(box, (40, BOX_Y))
-    d = ImageDraw.Draw(card)
+    draw = ImageDraw.Draw(card)
 
-    d.text((60,BOX_Y+15), "DMV INFO:", font=sec, fill=blue)
-    d.line((60,BOX_Y+47,300,BOX_Y+47), fill=blue, width=3)
+    draw.text((60, BOX_Y + 15), "DMV INFO:", font=section, fill=blue)
+    draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
 
-    uname_font = load_font(24, True)
-    uq = username
-    uname_w = d.textlength(uq, font=uname_font)
-    center_x = 40 + (W - 80)//2
-    d.text((center_x - uname_w/2, BOX_Y+15), uq, font=uname_font, fill=grey)
+    username_font = load_font(24, bold=True)
+    uname_w = draw.textlength(username_str, font=username_font)
+    name_center = 40 + (W - 80) // 2 - uname_w // 2
 
-    # License class + dates
+    draw.text((name_center, BOX_Y + 15), username_str, font=username_font, fill=grey)
+
+    # ============================================================
+    # DMV DETAILS
+    # ============================================================
+
+    if license_type == "provisional":
+        class_label = "Provisional"
+    else:
+        class_label = "Standard"
+
     y2 = BOX_Y + 65
+    draw.text((60, y2), "License Class:", font=boldf, fill=grey)
+    draw.text((245, y2), class_label, font=normal, fill=grey)
 
-    d.text((60,y2), "License Class:", font=bold, fill=grey)
-    d.text(
-        (245,y2),
-        "Provisional" if license_type=="provisional" else "Standard",
-        font=normal,
-        fill=grey,
-    )
+    # LICENSE NUMBER (PLACED TO THE RIGHT OF CLASS)
+    draw.text((430, y2), f"License #: {lic_num_str}", font=normal, fill=grey)
 
     y2 += 38
-    d.text((60,y2), "Issued:", font=bold, fill=grey)
-    d.text((150,y2), issued.strftime("%Y-%m-%d"), font=normal, fill=grey)
+    draw.text((60, y2), "Issued:", font=boldf, fill=grey)
+    draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=normal, fill=grey)
 
-    d.text((330,y2), "Expires:", font=bold, fill=grey)
-    d.text((430,y2), expires.strftime("%Y-%m-%d"), font=normal, fill=grey)
+    draw.text((330, y2), "Expires:", font=boldf, fill=grey)
+    draw.text((430, y2), expires.strftime("%Y-%m-%d"), font=normal, fill=grey)
 
-    # ===================== Star =====================
-    star = draw_star()
-    card.alpha_composite(star, (W - 150, BOX_Y + 10))
+    # ============================================================
+    # STAR SEAL
+    # ============================================================
 
-    # ===================== Export =====================
+    seal = Image.new("RGBA", (95, 95), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(seal)
+    cx, cy = 48, 48
+    R1, R2 = 44, 19
+    pts = []
+    for i in range(16):
+        ang = math.radians(i * 22.5)
+        r = R1 if i % 2 == 0 else R2
+        pts.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
+    sd.polygon(pts, fill=(40, 90, 180), outline="white", width=3)
+    seal = seal.filter(ImageFilter.GaussianBlur(0.8))
+
+    card.alpha_composite(seal, (W - 150, BOX_Y + 10))
+
     buf = io.BytesIO()
     card.save(buf, format="PNG")
     buf.seek(0)
-    return buf.getvalue()
+    return buf.read()
+
 
 # ============================================================
-# SEND DM LICENSE
+# SEND TO DISCORD
 # ============================================================
 
-async def send_dm_license(
-    discord_id,
-    img_bytes,
-    filename,
-    roleplay_name,
-    license_type,
-    issued,
-    expires
-):
-    user = await bot.fetch_user(int(discord_id))
-    guild = bot.get_guild(SERVER_ID)
+async def send_license_to_discord(img_data, filename, discord_id):
+    await bot.wait_until_ready()
 
-    embed = discord.Embed(
-        title=(
-            "Your Provisional License has been generated!"
-            if license_type == "provisional"
-            else "Your Driving License has been generated!"
-        ),
-        color=EMBED_COLOR,
-    )
+    file = discord.File(io.BytesIO(img_data), filename=filename)
+    channel = bot.get_channel(1436890841703645285)
 
-    embed.set_thumbnail(url=DM_THUMBNAIL)
-    embed.set_footer(
-        text=EMBED_FOOTER,
-        icon_url=guild.icon.url if guild and guild.icon else None,
-    )
-
-    issued_ts = int(issued.timestamp())
-    expires_ts = int(expires.timestamp())
-    rp = roleplay_name or "Citizen"
-
-    if license_type == "provisional":
-        embed.description = (
-            f"> Greetings, <@{discord_id}>.\n"
-            f"> Your provisional license is valid until "
-            f"**{expires.strftime('%B %d, %Y at %I:%M %p UTC')}** (<t:{expires_ts}:F>).\n"
-            f"> Create your permanent license:\n"
-            f"https://discord.com/channels/1328475009542258688/1437618758440063128\n\n"
-            f"> Violations void this license and require a driving test.\n\n"
-            f"> Thank you **{rp}**.\nSigned, Department of Motor Vehicles"
-        )
-    else:
-        embed.description = (
-            f"> Greetings, <@{discord_id}>.\n"
-            f"> Your permanent license was issued at "
-            f"**{issued.strftime('%B %d, %Y at %I:%M %p UTC')}** (<t:{issued_ts}:F>).\n"
-            f"> Stay within traffic law. 15 points → mandatory retraining.\n\n"
-            f"> Thank you **{rp}**.\nSigned, Department of Motor Vehicles"
+    if channel:
+        embed = discord.Embed(color=0x757575)
+        embed.set_image(url=f"attachment://{filename}")
+        await channel.send(
+            content=f"<@{discord_id}> Your license has been issued!",
+            embed=embed,
+            file=file,
         )
 
-    embed.set_image(url=f"attachment://{filename}")
-
-    file = discord.File(io.BytesIO(img_bytes), filename=filename)
-    await user.send(content=f"<@{discord_id}>", embed=embed, file=file)
-
-# ============================================================
-# LOG LICENSE TO CHANNEL
-# ============================================================
-
-async def log_license(discord_id, img_bytes, filename):
-    channel = bot.get_channel(LOG_CHANNEL_ID)
-    if not channel:
-        return
-
-    file = discord.File(io.BytesIO(img_bytes), filename=filename)
-    await channel.send(
-        content=f"License issued to <@{discord_id}> (ID: {discord_id})",
-        file=file,
-    )
 
 # ============================================================
 # FLASK API
@@ -372,81 +330,72 @@ def license_endpoint():
     try:
         data = request.json
         if not data:
-            return jsonify({"status":"error","message":"Invalid JSON"}), 400
+            return jsonify({"status": "error", "message": "Invalid JSON"}), 400
 
         username = data.get("roblox_username")
-        avatar_url = data.get("roblox_avatar")
-        discord_id = data.get("discord_id")
-        if not username or not avatar_url or not discord_id:
-            return jsonify({"status":"error","message":"Missing fields"}), 400
-
-        roleplay = data.get("roleplay_name") or username
         display = data.get("roblox_display")
+        avatar = data.get("roblox_avatar")
+        roleplay = data.get("roleplay_name")
         age = data.get("age")
         addr = data.get("address")
         eye = data.get("eye_color")
         height = data.get("height")
-        license_type = data.get("license_type", "standard")
+        discord_id = data.get("discord_id")
+        license_type = data.get("license_type", "standard").lower()
+        lic_num = data.get("license_number", username)
+
+        if not username or not avatar:
+            return jsonify({"status": "error", "message": "Missing username/avatar"}), 400
+
+        avatar_bytes = requests.get(avatar).content
 
         issued = datetime.utcnow()
-        expires = issued + timedelta(
-            days=3 if license_type == "provisional" else 150
-        )
 
-        avatar_bytes = requests.get(avatar_url).content
+        if license_type == "provisional":
+            expires = issued + timedelta(days=3)
+        else:
+            expires = issued + timedelta(days=150)
 
         img = create_license_image(
-            username=username,
-            avatar_bytes=avatar_bytes,
-            display_name=display,
-            roleplay=roleplay,
-            age=age,
-            address=addr,
-            eye_color=eye,
-            height=height,
-            issued=issued,
-            expires=expires,
-            lic_num=username,
-            license_type=license_type,
-        )
-
-        filename = f"{username}_license.png"
-
-        bot.loop.create_task(
-            send_dm_license(
-                discord_id,
-                img,
-                filename,
-                roleplay,
-                license_type,
-                issued,
-                expires
-            )
+            username,
+            avatar_bytes,
+            display,
+            roleplay,
+            age,
+            addr,
+            eye,
+            height,
+            issued,
+            expires,
+            lic_num,
+            license_type
         )
 
         bot.loop.create_task(
-            log_license(discord_id, img, filename)
+            send_license_to_discord(img, f"{username}_license.png", discord_id)
         )
 
-        return jsonify({"status":"ok"}), 200
+        return jsonify({"status": "ok"}), 200
 
     except Exception as e:
         import traceback
-        print("ERROR IN /license ENDPOINT:\n", traceback.format_exc())
-        return jsonify({"status":"error","message":str(e)}), 500
+        print(traceback.format_exc())
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 # ============================================================
-# BOT STARTUP
+# BOT READY
 # ============================================================
 
 @bot.event
 async def on_ready():
-    print(f"[OK] Logged in as {bot.user} ({bot.user.id})")
+    print(f"Logged in as {bot.user} ({bot.user.id})")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Slash commands synced: {len(synced)}")
+    except Exception as e:
+        print("Slash sync error:", e)
 
-async def setup_hook():
-    pass
-
-bot.setup_hook = setup_hook
 
 # ============================================================
 # RUN BOT + FLASK
@@ -454,6 +403,7 @@ bot.setup_hook = setup_hook
 
 def run_bot():
     bot.run(TOKEN)
+
 
 if __name__ == "__main__":
     Thread(target=run_bot, daemon=True).start()
