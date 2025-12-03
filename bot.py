@@ -172,7 +172,11 @@ def create_license_image(
     header.putalpha(header_mask)
     card.alpha_composite(header, (0, 0))
 
-    tw = draw.textlength(title_text, font=title_font)
+    # Drop shadow behind title
+    shadow_offset = 2
+    draw.text(((W - tw) / 2 + shadow_offset, 24 + shadow_offset), title_text, fill=(0, 0, 0, 120), font=title_font)
+
+    # Main title
     draw.text(((W - tw) / 2, 24), title_text, fill="white", font=title_font)
 
     # ============================================================
@@ -212,7 +216,13 @@ def create_license_image(
 
     ix = 290
     iy = 160
-    draw.text((ix, iy), "IDENTITY:", font=section, fill=blue)
+
+    def outline_text(draw, x, y, text, font, fill, outline=(0, 0, 0, 120)):
+        # Draw outline around text for readability
+        offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        for ox, oy in offsets:
+            draw.text((x + ox, y + oy), text, font=font, fill=outline)
+        draw.text((x, y), text, font=font, fill=fill)
     draw.line((ix, iy + 34, ix + 250, iy + 34), fill=blue, width=3)
 
     iy += 55
@@ -248,8 +258,8 @@ def create_license_image(
 
     # Colors (provisional = orange, standard = blue)
     if license_type == "provisional":
-        fill_color = (255, 200, 150, 110)
-        outline_color = (240, 150, 60, 200)
+        fill_color = (255, 185, 120, 120)  # softer warm orange fill
+        outline_color = (210, 110, 40, 220)  # darker outline for contrast
     else:
         fill_color = (200, 220, 255, 90)
         outline_color = (80, 140, 255, 180)
