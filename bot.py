@@ -56,10 +56,6 @@ def load_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-# ============================================================
-# LICENSE IMAGE GENERATOR (STANDARD + PROVISIONAL)
-# ============================================================
-
 def create_license_image(
     username,
     avatar_bytes,
@@ -74,9 +70,11 @@ def create_license_image(
     lic_num,
     license_type
 ):
-    W, H = 820, 520
 
-    # Coerce to strings
+    # -----------------------------
+    # CORE SETTINGS
+    # -----------------------------
+    W, H = 820, 520
     username_str = str(username) if username else ""
     roleplay_name_str = str(roleplay_name) if roleplay_name else username_str
     age_str = str(age) if age else ""
@@ -85,20 +83,20 @@ def create_license_image(
     height_str = str(height) if height else ""
     lic_num_str = str(lic_num)
 
-    # Base rounded card
+    # -----------------------------
+    # Base rounded rectangle
+    # -----------------------------
     card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     full_mask = Image.new("L", (W, H), 0)
     ImageDraw.Draw(full_mask).rounded_rectangle((0, 0, W, H), 120, fill=255)
-
     base = Image.new("RGBA", (W, H), (255, 255, 255, 0))
     base.putalpha(full_mask)
     card = base.copy()
     draw = ImageDraw.Draw(card)
 
-    # =======================
-    # Background gradient
-    # =======================
-
+    # -----------------------------
+    # BACKGROUND GRADIENT
+    # -----------------------------
     bg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     bgd = ImageDraw.Draw(bg)
 
@@ -106,30 +104,31 @@ def create_license_image(
         ratio = y / H
 
         if license_type == "provisional":
-            # Warm orange gradient
             r = int(255 - 30 * ratio)
             g = int(180 + 20 * ratio)
             b = int(80 - 30 * ratio)
         else:
-            # Original blue gradient
             r = int(150 + 40 * ratio)
             g = int(180 + 50 * ratio)
             b = int(220 + 20 * ratio)
 
+        # clamp
+        r = max(0, min(255, r))
+        g = max(0, min(255, g))
+        b = max(0, min(255, b))
+
         bgd.line((0, y, W, y), fill=(r, g, b))
 
-    # =======================
-    # MESH (color depends on type)
-    # =======================
-
+    # -----------------------------
+    # MESH OVERLAY
+    # -----------------------------
     wave = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wd = ImageDraw.Draw(wave)
 
-    if license_type == "provisional":
-        # Orange gradient-matching mesh
-        mesh_color = (255, 180, 100, 45)
-    else:
-        mesh_color = (255, 255, 255, 40)
+    mesh_color = (
+        (255, 180, 100, 45) if license_type == "provisional"
+        else (255, 255, 255, 40)
+    )
 
     for x in range(0, W, 40):
         for y in range(0, H, 40):
@@ -137,15 +136,13 @@ def create_license_image(
 
     wave = wave.filter(ImageFilter.GaussianBlur(1.2))
     bg.alpha_composite(wave)
-
     bg.putalpha(full_mask)
     card = Image.alpha_composite(card, bg)
     draw = ImageDraw.Draw(card)
 
-    # ============================================================
-    # HEADER (Blue or Orange)
-    # ============================================================
-
+    # -----------------------------
+    # HEADER
+    # -----------------------------
     HEADER_H = 95
 
     if license_type == "provisional":
@@ -163,108 +160,99 @@ def create_license_image(
     hd = ImageDraw.Draw(header)
 
     for i in range(HEADER_H):
-        r = int(header_color_start[0] + (header_color_end[0] - header_color_start[0]) * (i / HEADER_H))
-        g = int(header_color_start[1] + (header_color_end[1] - header_color_start[1]) * (i / HEADER_H))
-        b = int(header_color_start[2] + (header_color_end[2] - header_color_start[2]) * (i / HEADER_H))
-        hd.line((0, i, W, i), fill=(r, g, b))
+        rr = int(header_color_start[0] + (header_color_end[0] - header_color_start[0]) * (i / HEADER_H))
+        gg = int(header_color_start[1] + (header_color_end[1] - header_color_start[1]) * (i / HEADER_H))
+        bb = int(header_color_start[2] + (header_color_end[2] - header_color_start[2]) * (i / HEADER_H))
+        hd.line((0, i, W, i), fill=(rr, gg, bb))
 
     header_mask = full_mask.crop((0, 0, W, HEADER_H))
     header.putalpha(header_mask)
     card.alpha_composite(header, (0, 0))
 
-    # Drop shadow behind title
+    # Title shadow + title
+    tw = draw.textlength(title_text, font=title_font)
     shadow_offset = 2
-    draw.text(((W - tw) / 2 + shadow_offset, 24 + shadow_offset), title_text, fill=(0, 0, 0, 120), font=title_font)
-
-    # Main title
+    draw.text(((W - tw) / 2 + shadow_offset, 24 + shadow_offset),
+              title_text, fill=(0, 0, 0, 120), font=title_font)
     draw.text(((W - tw) / 2, 24), title_text, fill="white", font=title_font)
 
-    # ============================================================
+    # -----------------------------
     # AVATAR
-    # ============================================================
-
+    # -----------------------------
     try:
         av = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
         av = av.resize((200, 200))
         mask2 = Image.new("L", (200, 200), 0)
         ImageDraw.Draw(mask2).rounded_rectangle((0, 0, 200, 200), 42, fill=255)
         av.putalpha(mask2)
-
         shadow = av.filter(ImageFilter.GaussianBlur(4))
         card.alpha_composite(shadow, (58, 158))
         card.alpha_composite(av, (50, 150))
     except:
         pass
 
-    # ============================================================
+    # -----------------------------
     # TEXT STYLES
-    # ============================================================
-
+    # -----------------------------
     section = load_font(24, bold=True)
     boldf = load_font(22, bold=True)
     normal = load_font(22)
+
+    # readable orange text for provisional
     if license_type == "provisional":
-        blue = (230, 140, 30)  # Orange section/header color
+        accent = (160, 70, 20)
     else:
-        blue = (50, 110, 200)
+        accent = (50, 110, 200)
 
     grey = (35, 35, 35)
 
-    # ============================================================
-    # IDENTITY
-    # ============================================================
-
-    ix = 290
-    iy = 160
-
-    def outline_text(draw, x, y, text, font, fill, outline=(0, 0, 0, 120)):
-        # Draw outline around text for readability
+    # outline text helper
+    def outline_text(x, y, text, font, fill):
         offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         for ox, oy in offsets:
-            draw.text((x + ox, y + oy), text, font=font, fill=outline)
+            draw.text((x + ox, y + oy), text, font=font, fill=(0, 0, 0, 130))
         draw.text((x, y), text, font=font, fill=fill)
-    draw.line((ix, iy + 34, ix + 250, iy + 34), fill=blue, width=3)
+
+    # -----------------------------
+    # IDENTITY
+    # -----------------------------
+    ix, iy = 290, 160
+    outline_text(ix, iy, "IDENTITY:", section, accent)
+    draw.line((ix, iy + 34, ix + 250, iy + 34), fill=accent, width=3)
 
     iy += 55
-
-    def write_pair(x, y, label, value):
+    def pair(x, y, label, value):
         lw = draw.textlength(label, font=boldf)
         draw.text((x, y), label, font=boldf, fill=grey)
         draw.text((x + lw + 10, y), value, font=normal, fill=grey)
 
-    write_pair(ix, iy, "Name:", roleplay_name_str)
-    write_pair(ix, iy + 34, "Age:", age_str)
-    write_pair(ix, iy + 68, "Address:", address_str)
+    pair(ix, iy, "Name:", roleplay_name_str)
+    pair(ix, iy + 34, "Age:", age_str)
+    pair(ix, iy + 68, "Address:", address_str)
 
-    # ============================================================
+    # -----------------------------
     # PHYSICAL
-    # ============================================================
-
-    px = 550
-    py = 160
-    draw.text((px, py), "PHYSICAL:", font=section, fill=blue)
-    draw.line((px, py + 34, px + 250, py + 34), fill=blue, width=3)
+    # -----------------------------
+    px, py = 550, 160
+    outline_text(px, py, "PHYSICAL:", section, accent)
+    draw.line((px, py + 34, px + 250, py + 34), fill=accent, width=3)
 
     py += 55
-    write_pair(px, py, "Eye Color:", eye_color_str)
-    write_pair(px, py + 34, "Height:", height_str)
+    pair(px, py, "Eye Color:", eye_color_str)
+    pair(px, py + 34, "Height:", height_str)
 
-    # ============================================================
+    # -----------------------------
     # DMV BOX
-    # ============================================================
+    # -----------------------------
+    BOX_Y, BOX_H = 360, 140
 
-    BOX_Y = 360
-    BOX_H = 140
-
-    # Colors (provisional = orange, standard = blue)
     if license_type == "provisional":
-        fill_color = (255, 185, 120, 120)  # softer warm orange fill
-        outline_color = (210, 110, 40, 220)  # darker outline for contrast
+        fill_color = (255, 185, 120, 120)
+        outline_color = (210, 110, 40, 220)
     else:
         fill_color = (200, 220, 255, 90)
         outline_color = (80, 140, 255, 180)
 
-    # Create box
     box = Image.new("RGBA", (W - 80, BOX_H), (0, 0, 0, 0))
     bd = ImageDraw.Draw(box)
 
@@ -279,67 +267,52 @@ def create_license_image(
     card.alpha_composite(box, (40, BOX_Y))
     draw = ImageDraw.Draw(card)
 
-    # DMV INFO label
-    draw.text((60, BOX_Y + 15), "DMV INFO:", font=section, fill=blue)
-    draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
+    outline_text(60, BOX_Y + 15, "DMV INFO:", section, accent)
+    draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=accent, width=3)
 
-    username_font = load_font(24, bold=True)
-    uname_w = draw.textlength(username_str, font=username_font)
-    name_center = 40 + (W - 80) // 2 - uname_w // 2
-
-    # ============================================================
-    # DMV DETAILS
-    # ============================================================
-
-    if license_type == "provisional":
-        class_label = "Provisional"
-    else:
-        class_label = "Standard"
-
+    # DMV details
+    cls = "Provisional" if license_type == "provisional" else "Standard"
     y2 = BOX_Y + 65
-    draw.text((60, y2), "License Class:", font=boldf, fill=grey)
-    draw.text((245, y2), class_label, font=normal, fill=grey)
-
-    # LICENSE NUMBER (PLACED TO THE RIGHT OF CLASS)
+    pair(60, y2, "License Class:", cls)
     draw.text((430, y2), f"License #: {lic_num_str}", font=normal, fill=grey)
 
     y2 += 38
-    draw.text((60, y2), "Issued:", font=boldf, fill=grey)
-    draw.text((150, y2), issued.strftime("%Y-%m-%d"), font=normal, fill=grey)
+    pair(60, y2, "Issued:", issued.strftime("%Y-%m-%d"))
+    pair(330, y2, "Expires:", expires.strftime("%Y-%m-%d"))
 
-    draw.text((330, y2), "Expires:", font=boldf, fill=grey)
-    draw.text((430, y2), expires.strftime("%Y-%m-%d"), font=normal, fill=grey)
-
-    # ============================================================
+    # -----------------------------
     # STAR SEAL
-    # ============================================================
-
+    # -----------------------------
     seal = Image.new("RGBA", (95, 95), (0, 0, 0, 0))
     sd = ImageDraw.Draw(seal)
     cx, cy = 48, 48
     R1, R2 = 44, 19
     pts = []
+
     for i in range(16):
         ang = math.radians(i * 22.5)
         r = R1 if i % 2 == 0 else R2
         pts.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
+
     if license_type == "provisional":
-        seal_color = (255, 150, 40)  # bright orange
-        outline_color = (255, 230, 180)  # soft light-orange outline
+        seal_color = (255, 150, 40)
+        seal_outline = (255, 230, 180)
     else:
         seal_color = (40, 90, 180)
-        outline_color = "white"
+        seal_outline = "white"
 
-    sd.polygon(pts, fill=seal_color, outline=outline_color, width=3)
-
+    sd.polygon(pts, fill=seal_color, outline=seal_outline, width=3)
     seal = seal.filter(ImageFilter.GaussianBlur(0.8))
-
     card.alpha_composite(seal, (W - 150, BOX_Y + 10))
 
+    # -----------------------------
+    # RETURN IMAGE
+    # -----------------------------
     buf = io.BytesIO()
     card.save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
+
 
 
 # ============================================================
