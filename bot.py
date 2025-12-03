@@ -104,9 +104,18 @@ def create_license_image(
 
     for y in range(H):
         ratio = y / H
-        r = int(150 + 40 * ratio)
-        g = int(180 + 50 * ratio)
-        b = int(220 + 20 * ratio)
+
+        if license_type == "provisional":
+            # Warm orange gradient
+            r = int(255 - 30 * ratio)
+            g = int(180 + 20 * ratio)
+            b = int(80 - 30 * ratio)
+        else:
+            # Original blue gradient
+            r = int(150 + 40 * ratio)
+            g = int(180 + 50 * ratio)
+            b = int(220 + 20 * ratio)
+
         bgd.line((0, y, W, y), fill=(r, g, b))
 
     # =======================
@@ -118,7 +127,7 @@ def create_license_image(
 
     if license_type == "provisional":
         # Orange gradient-matching mesh
-        mesh_color = (255, 150, 40, 50)
+        mesh_color = (255, 180, 100, 45)
     else:
         mesh_color = (255, 255, 255, 40)
 
@@ -304,7 +313,15 @@ def create_license_image(
         ang = math.radians(i * 22.5)
         r = R1 if i % 2 == 0 else R2
         pts.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
-    sd.polygon(pts, fill=(40, 90, 180), outline="white", width=3)
+    if license_type == "provisional":
+        seal_color = (255, 150, 40)  # bright orange
+        outline_color = (255, 230, 180)  # soft light-orange outline
+    else:
+        seal_color = (40, 90, 180)
+        outline_color = "white"
+
+    sd.polygon(pts, fill=seal_color, outline=outline_color, width=3)
+
     seal = seal.filter(ImageFilter.GaussianBlur(0.8))
 
     card.alpha_composite(seal, (W - 150, BOX_Y + 10))
