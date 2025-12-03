@@ -6,6 +6,8 @@ import io
 import math
 from datetime import datetime, timedelta
 from threading import Thread
+import aiosqlite
+
 
 # --- third-party ---
 import requests
@@ -35,7 +37,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
-
 
 # ============================================================
 # FONT LOADING
@@ -116,9 +117,10 @@ def create_license_image(
     wd = ImageDraw.Draw(wave)
 
     if license_type == "provisional":
-        mesh_color = (255, 160, 40, 40)  # soft orange mesh
+        # Orange gradient-matching mesh
+        mesh_color = (255, 150, 40, 50)
     else:
-        mesh_color = (255, 255, 255, 40)  # white mesh
+        mesh_color = (255, 255, 255, 40)
 
     for x in range(0, W, 40):
         for y in range(0, H, 40):
@@ -140,8 +142,8 @@ def create_license_image(
     if license_type == "provisional":
         header_color_start = (225, 150, 30)
         header_color_end = (255, 185, 60)
-        title_text = "LAKEVIEW CITY PROVISIONAL LICENSE"
-        title_font = load_font(35, bold=True)
+        title_text = "LAKEVIEW PROVISIONAL LICENSE"
+        title_font = load_font(33, bold=True)
     else:
         header_color_start = (35, 70, 160)
         header_color_end = (60, 100, 190)
@@ -188,7 +190,11 @@ def create_license_image(
     section = load_font(24, bold=True)
     boldf = load_font(22, bold=True)
     normal = load_font(22)
-    blue = (50, 110, 200)
+    if license_type == "provisional":
+        blue = (230, 140, 30)  # Orange section/header color
+    else:
+        blue = (50, 110, 200)
+
     grey = (35, 35, 35)
 
     # ============================================================
@@ -231,26 +237,36 @@ def create_license_image(
     BOX_Y = 360
     BOX_H = 140
 
+    # Colors (provisional = orange, standard = blue)
+    if license_type == "provisional":
+        fill_color = (255, 200, 150, 110)
+        outline_color = (240, 150, 60, 200)
+    else:
+        fill_color = (200, 220, 255, 90)
+        outline_color = (80, 140, 255, 180)
+
+    # Create box
     box = Image.new("RGBA", (W - 80, BOX_H), (0, 0, 0, 0))
     bd = ImageDraw.Draw(box)
+
     bd.rounded_rectangle(
         (0, 0, W - 80, BOX_H),
         radius=45,
-        fill=(200, 220, 255, 90),
-        outline=(80, 140, 255, 180),
+        fill=fill_color,
+        outline=outline_color,
         width=3,
     )
+
     card.alpha_composite(box, (40, BOX_Y))
     draw = ImageDraw.Draw(card)
 
+    # DMV INFO label
     draw.text((60, BOX_Y + 15), "DMV INFO:", font=section, fill=blue)
     draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
 
     username_font = load_font(24, bold=True)
     uname_w = draw.textlength(username_str, font=username_font)
     name_center = 40 + (W - 80) // 2 - uname_w // 2
-
-    draw.text((name_center, BOX_Y + 15), username_str, font=username_font, fill=grey)
 
     # ============================================================
     # DMV DETAILS
@@ -382,19 +398,34 @@ def license_endpoint():
         print(traceback.format_exc())
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# ============================================================
+# SINGLE CORRECT SETUP HOOK
+# ============================================================
+import aiosqlite
 
-# ============================================================
-# BOT READY
-# ============================================================
+async def setup_hook():
+    # Create database BEFORE loading any extension that uses it
+    bot.db = await aiosqlite.connect("workforce.db")
+
+    # Load other cogs
+    await bot.load_extension("cogs.economy")
+    await bot.load_extension("cogs.erlc_application")
+    await bot.load_extension("cogs.auto_giveaway")
+    print("Cogs loaded")
+
+bot.setup_hook = setup_hook
+
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user} ({bot.user.id})")
+    print(f"✅ Logged in as {bot.user} ({bot.user.id})")
+
     try:
         synced = await bot.tree.sync()
-        print(f"Slash commands synced: {len(synced)}")
+        print(f"✅ Slash commands synced: {len(synced)}")
     except Exception as e:
         print("Slash sync error:", e)
+
 
 
 # ============================================================
