@@ -16,10 +16,13 @@ class GiveawayView(discord.ui.View):
         self.giveaway_id = giveaway_id
         self.parent = parent
 
-    @discord.ui.button(label="Join Giveaway", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="Join Giveaway", style=discord.ButtonStyle.gray, custom_id="join_giveaway_btn")
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
-        data = self.parent.giveaways[self.giveaway_id]
+        if self.giveaway_id not in self.parent.giveaways:
+            await interaction.response.send_message("This giveaway has ended.", ephemeral=True)
+            return
 
+        data = self.parent.giveaways[self.giveaway_id]
         if interaction.user.id in data["entries"]:
             await interaction.response.send_message("You already joined.", ephemeral=True)
             return
@@ -33,12 +36,12 @@ class AutoRobuxGiveaway(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-        # CONFIG
+        # CONFIG UPDATED
         self.channel_id = 1146448285922500608
-        self.role_id = 1442922648332927098
-        self.trigger_messages = 600
-        self.max_giveaways = 10
-        self.giveaway_duration = 3600  # 1 hour
+        self.role_id = 1453804012624412749
+        self.trigger_messages = 2000
+        self.max_giveaways = 30 # Increased by 10
+        self.giveaway_duration = 7200 # 2 Hours
         self.prize_amount = 1000
 
         # STATE
@@ -49,13 +52,8 @@ class AutoRobuxGiveaway(commands.Cog):
         self.load_data()
         bot.loop.create_task(self.restore_giveaways())
 
-    # ---------------- SAVE / LOAD ----------------
-
     def save_data(self):
-        data = {
-            "giveaway_count": self.giveaway_count,
-            "giveaways": self.giveaways
-        }
+        data = {"giveaway_count": self.giveaway_count, "giveaways": self.giveaways}
         with open(DATA_FILE, "w") as f:
             json.dump(data, f, indent=4)
 
@@ -70,20 +68,15 @@ class AutoRobuxGiveaway(commands.Cog):
                 self.giveaway_count = 0
                 self.giveaways = {}
 
-    # ---------------- EVENT LISTENER ----------------
-
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if not message.guild or message.author.bot:
-            return
-        if message.channel.id != self.channel_id:
+        if not message.guild or message.author.bot or message.channel.id != self.channel_id:
             return
 
-        # HARD STOP after 10 giveaways (persistent)
         if self.giveaway_count >= self.max_giveaways:
             return
 
-        # give role during event
+        # Auto-Role
         role = message.guild.get_role(self.role_id)
         if role and role not in message.author.roles:
             try:
@@ -97,18 +90,13 @@ class AutoRobuxGiveaway(commands.Cog):
             self.message_count = 0
             await self.create_giveaway(message.channel)
 
-    # ---------------- CREATE GIVEAWAY ----------------
-
     async def create_giveaway(self, channel: discord.TextChannel):
-        # HARD STOP after 10 (persistent)
         if self.giveaway_count >= self.max_giveaways:
             return
 
         self.giveaway_count += 1
-
         giveaway_id = str(int(datetime.utcnow().timestamp() * 1000))
-        end_time = datetime.utcnow() + timedelta(seconds=self.giveaway_duration)
-        end_ts = int(end_time.timestamp())
+        end_ts = int((datetime.utcnow() + timedelta(seconds=self.giveaway_duration)).timestamp())
 
         self.giveaways[giveaway_id] = {
             "channel_id": channel.id,
@@ -119,105 +107,79 @@ class AutoRobuxGiveaway(commands.Cog):
         self.save_data()
 
         view = GiveawayView(giveaway_id, self)
-
         giveaways_left = self.max_giveaways - self.giveaway_count
         embed = self.build_embed(end_ts, 0, giveaways_left, channel.guild)
 
-        msg = await channel.send(
-            content=f"<@&{self.role_id}>",
-            embed=embed,
-            view=view
-        )
-        await msg.pin()
+        msg = await channel.send(content=f"<@&{self.role_id}>", embed=embed, view=view)
+        try:
+            await msg.pin()
+        except:
+            pass
 
         self.giveaways[giveaway_id]["message_id"] = msg.id
         self.save_data()
-
         asyncio.create_task(self.run_giveaway_loop(giveaway_id))
-
-    # ---------------- EMBED BUILDER ----------------
 
     def build_embed(self, end_ts, entry_count, giveaways_left, guild):
         embed = discord.Embed(
-            title="1,000 Robux Giveaway Spawned",
+            title=f"{self.prize_amount:,} Robux Christmas Giveaway!",
             description=(
-                "> We are giving away 20,000 Robux for hitting 20,000 members, "
-                "join the giveaway by clicking join below! "
-                "Spawn more giveaways by sending messages in this channel.\n\n"
-                f"**Entries:** {entry_count} | **Ending:** <t:{end_ts}:R>\n"
-                f"**Giveaways Left:** {giveaways_left}"
+                f"> **Entries:** {entry_count}\n"
+                f"> **Ending:** <t:{end_ts}:R>\n"
+                f"> **Giveaways Remaining:** {giveaways_left}"
             ),
-            colour=discord.Colour.gold()
+            colour=discord.Colour.green()
         )
-
         embed.set_thumbnail(url=THUMBNAIL_URL)
-
-        if guild and guild.icon:
-            embed.set_footer(
-                text="Special 20,000 Member Event!",
-                icon_url=guild.icon.url
-            )
-        else:
-            embed.set_footer(text="Special 20,000 Member Event!")
-
+        footer_icon = guild.icon.url if guild and guild.icon else None
+        embed.set_footer(text="Christmas Robux Giveaway!", icon_url=footer_icon)
         return embed
 
-    # ---------------- GIVEAWAY LOOP ----------------
-
     async def run_giveaway_loop(self, giveaway_id):
-        data = self.giveaways[giveaway_id]
-
-        channel = self.bot.get_channel(data["channel_id"])
-        if not channel:
-            return
-
-        try:
-            msg = await channel.fetch_message(data["message_id"])
-        except:
-            return
-
-        view = GiveawayView(giveaway_id, self)
-
         while True:
-            await asyncio.sleep(1)
+            if giveaway_id not in self.giveaways:
+                return
 
+            data = self.giveaways[giveaway_id]
             now = int(datetime.utcnow().timestamp())
+
             if now >= data["end_ts"]:
                 break
 
             try:
-                giveaways_left = self.max_giveaways - self.giveaway_count
-                embed = self.build_embed(data["end_ts"], len(data["entries"]), giveaways_left, channel.guild)
-                await msg.edit(embed=embed, view=view)
+                channel = self.bot.get_channel(data["channel_id"])
+                if channel:
+                    msg = await channel.fetch_message(data["message_id"])
+                    giveaways_left = self.max_giveaways - self.giveaway_count
+                    embed = self.build_embed(data["end_ts"], len(data["entries"]), giveaways_left, channel.guild)
+                    await msg.edit(embed=embed, view=GiveawayView(giveaway_id, self))
             except:
                 pass
 
-        # END GIVEAWAY
-        if not data["entries"]:
-            await channel.send("No one joined the giveaway.")
-        else:
-            user_id = random.choice(data["entries"])
-            user = await self.bot.fetch_user(user_id)
-            await msg.reply(
-                f"{user.mention} You won the giveaway for 1,000 robux, create a Purchase <#1134437443152650260> ticket!",
-                mention_author=False
-            )
+            await asyncio.sleep(2)
 
-        # Unpin message
+        # END GIVEAWAY
         try:
+            channel = self.bot.get_channel(data["channel_id"])
+            msg = await channel.fetch_message(data["message_id"])
             await msg.unpin()
+
+            if not data["entries"]:
+                await channel.send(f"The giveaway ended, but no one joined!")
+            else:
+                winner_id = random.choice(data["entries"])
+                winner = await self.bot.fetch_user(winner_id)
+                await msg.reply(
+                    f"🎊 {winner.mention} **You won 1,000 Robux!** Create a ticket at <#1134437443152650260>.")
         except:
             pass
 
-        del self.giveaways[giveaway_id]
-        self.save_data()
-
-    # ---------------- RESTORE GIVEAWAYS ----------------
+        if giveaway_id in self.giveaways:
+            del self.giveaways[giveaway_id]
+            self.save_data()
 
     async def restore_giveaways(self):
         await self.bot.wait_until_ready()
-        await asyncio.sleep(3)
-
         for giveaway_id in list(self.giveaways.keys()):
             asyncio.create_task(self.run_giveaway_loop(giveaway_id))
 

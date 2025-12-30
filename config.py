@@ -6,3 +6,5 @@ STAFF_CHANNEL_ID = 1437239908237447290
 
 # Optional: role given automatically to approved users (set to None if not used)
 APPROVED_ROLE_ID = None  # Example: 123456789012345678
+
+LOGGING_CHANNEL_ID = 1451391006774661222

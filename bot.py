@@ -6,8 +6,10 @@ import io
 import math
 from datetime import datetime, timedelta
 from threading import Thread
-import aiosqlite
 
+print("BOT PID:", os.getpid())
+import aiosqlite
+import sqlite3  # Needed for the synchronous part in Flask
 
 # --- third-party ---
 import requests
@@ -17,7 +19,6 @@ from flask import Flask, request, jsonify
 # --- discord.py ---
 import discord
 from discord.ext import commands
-
 
 # ============================================================
 # TOKEN / DISCORD SETUP
@@ -30,13 +31,15 @@ if not TOKEN and os.path.exists("token.txt"):
         TOKEN = f.read().strip()
 
 if not TOKEN:
-    raise RuntimeError("❌ Discord token not found!")
+    # Just a warning so it doesn't crash if you run it locally without env vars immediately
+    print("⚠️  Warning: Discord token not found in env or token.txt")
 
 PREFIX = "?"
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
+
 
 # ============================================================
 # FONT LOADING
@@ -57,18 +60,18 @@ def load_font(size: int, bold: bool = False):
 
 
 def create_license_image(
-    username,
-    avatar_bytes,
-    display_name,
-    roleplay_name,
-    age,
-    address,
-    eye_color,
-    height,
-    issued,
-    expires,
-    lic_num,
-    license_type
+        username,
+        avatar_bytes,
+        display_name,
+        roleplay_name,
+        age,
+        address,
+        eye_color,
+        height,
+        issued,
+        expires,
+        lic_num,
+        license_type
 ):
     # --- CANVAS SIZE ---
     W, H = 820, 520
@@ -142,12 +145,12 @@ def create_license_image(
 
     if license_type == "provisional":
         header_color_start = (225, 140, 20)
-        header_color_end   = (255, 200, 80)
+        header_color_end = (255, 200, 80)
         title_text = "LAKEVIEW PROVISIONAL LICENSE"
         title_font = load_font(35, bold=True)
     else:
         header_color_start = (35, 70, 160)
-        header_color_end   = (60, 100, 190)
+        header_color_end = (60, 100, 190)
         title_text = "LAKEVIEW CITY DRIVER LICENSE"
         title_font = load_font(39, bold=True)
 
@@ -166,8 +169,8 @@ def create_license_image(
 
     # Title shadow + text
     tw = draw.textlength(title_text, font=title_font)
-    draw.text((W/2 - tw/2 + 2, 26 + 2), title_text, fill=(0, 0, 0, 120), font=title_font)
-    draw.text((W/2 - tw/2, 26), title_text, fill="white", font=title_font)
+    draw.text((W / 2 - tw / 2 + 2, 26 + 2), title_text, fill=(0, 0, 0, 120), font=title_font)
+    draw.text((W / 2 - tw / 2, 26), title_text, fill="white", font=title_font)
 
     # ====================================================
     # AVATAR
@@ -189,16 +192,16 @@ def create_license_image(
     # TEXT COLORS & FONTS
     # ====================================================
     section = load_font(24, bold=True)
-    boldf   = load_font(22, bold=True)
-    normal  = load_font(22)
+    boldf = load_font(22, bold=True)
+    normal = load_font(22)
 
     blue = (160, 70, 20) if license_type == "provisional" else (50, 110, 200)
     grey = (35, 35, 35)
 
     # outline text helper
     def ot(x, y, txt, font, fill):
-        for ox, oy in [(-1,0),(1,0),(0,-1),(0,1)]:
-            draw.text((x+ox, y+oy), txt, font=font, fill=(0,0,0,120))
+        for ox, oy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            draw.text((x + ox, y + oy), txt, font=font, fill=(0, 0, 0, 120))
         draw.text((x, y), txt, font=font, fill=fill)
 
     # ====================================================
@@ -206,7 +209,7 @@ def create_license_image(
     # ====================================================
     ix, iy = 290, 160
     ot(ix, iy, "IDENTITY:", section, blue)
-    draw.line((ix, iy+34, ix+250, iy+34), fill=blue, width=3)
+    draw.line((ix, iy + 34, ix + 250, iy + 34), fill=blue, width=3)
 
     iy += 55
 
@@ -216,19 +219,19 @@ def create_license_image(
         draw.text((x + lw + 10, y), value, font=normal, fill=grey)
 
     wp(ix, iy, "Name:", roleplay_name_str)
-    wp(ix, iy+34, "Age:", age_str)
-    wp(ix, iy+68, "Address:", addr_str)
+    wp(ix, iy + 34, "Age:", age_str)
+    wp(ix, iy + 68, "Address:", addr_str)
 
     # ====================================================
     # PHYSICAL SECTION
     # ====================================================
     px, py = 550, 160
     ot(px, py, "PHYSICAL:", section, blue)
-    draw.line((px, py+34, px+250, py+34), fill=blue, width=3)
+    draw.line((px, py + 34, px + 250, py + 34), fill=blue, width=3)
 
     py += 55
     wp(px, py, "Eye Color:", eye_str)
-    wp(px, py+34, "Height:", height_str)
+    wp(px, py + 34, "Height:", height_str)
 
     # ====================================================
     # DMV INFO BOX
@@ -236,25 +239,25 @@ def create_license_image(
     BOX_Y, BOX_H = 360, 140
 
     if license_type == "provisional":
-        fill_color    = (255, 190, 130, 130)
+        fill_color = (255, 190, 130, 130)
         outline_color = (180, 90, 20, 255)
     else:
-        fill_color    = (200, 220, 255, 90)
+        fill_color = (200, 220, 255, 90)
         outline_color = (80, 140, 255, 180)
 
-    box = Image.new("RGBA", (W-80, BOX_H), (0,0,0,0))
-    bd  = ImageDraw.Draw(box)
+    box = Image.new("RGBA", (W - 80, BOX_H), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(box)
 
-    bd.rounded_rectangle((0,0,W-80,BOX_H), radius=45, fill=fill_color, outline=outline_color, width=3)
+    bd.rounded_rectangle((0, 0, W - 80, BOX_H), radius=45, fill=fill_color, outline=outline_color, width=3)
     card.alpha_composite(box, (40, BOX_Y))
 
     # DMV text
-    ot(60, BOX_Y+15, "DMV INFO:", section, blue)
-    draw.line((60, BOX_Y+47, 300, BOX_Y+47), fill=blue, width=3)
+    ot(60, BOX_Y + 15, "DMV INFO:", section, blue)
+    draw.line((60, BOX_Y + 47, 300, BOX_Y + 47), fill=blue, width=3)
 
     y2 = BOX_Y + 65
     draw.text((60, y2), "License Class:", font=boldf, fill=grey)
-    draw.text((245, y2), "Provisional" if license_type=="provisional" else "Standard", font=normal, fill=grey)
+    draw.text((245, y2), "Provisional" if license_type == "provisional" else "Standard", font=normal, fill=grey)
 
     draw.text((430, y2), f"License #: {lic_num_str}", font=normal, fill=grey)
 
@@ -268,7 +271,7 @@ def create_license_image(
     # ====================================================
     # STAR SEAL
     # ====================================================
-    seal = Image.new("RGBA", (95,95), (0,0,0,0))
+    seal = Image.new("RGBA", (95, 95), (0, 0, 0, 0))
     sd = ImageDraw.Draw(seal)
 
     cx, cy = 48, 48
@@ -278,19 +281,19 @@ def create_license_image(
     for i in range(16):
         ang = math.radians(i * 22.5)
         r = R1 if i % 2 == 0 else R2
-        pts.append((cx + r*math.cos(ang), cy + r*math.sin(ang)))
+        pts.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
 
     if license_type == "provisional":
-        seal_color = (255,150,40)
-        outline_c  = (255,230,180)
+        seal_color = (255, 150, 40)
+        outline_c = (255, 230, 180)
     else:
-        seal_color = (40,90,180)
-        outline_c  = (255,255,255)
+        seal_color = (40, 90, 180)
+        outline_c = (255, 255, 255)
 
     sd.polygon(pts, fill=seal_color, outline=outline_c, width=3)
     seal = seal.filter(ImageFilter.GaussianBlur(1.0))
 
-    card.alpha_composite(seal, (W-150, BOX_Y+10))
+    card.alpha_composite(seal, (W - 150, BOX_Y + 10))
 
     # ====================================================
     # EXPORT BUFFER
@@ -301,25 +304,151 @@ def create_license_image(
     return buf.read()
 
 
-
 # ============================================================
-# SEND TO DISCORD
+# SEND TO DISCORD (UPDATED LOGIC)
 # ============================================================
 
-async def send_license_to_discord(img_data, filename, discord_id):
+async def send_license_to_discord(img_data, filename, discord_id, license_type="standard"):
     await bot.wait_until_ready()
 
-    file = discord.File(io.BytesIO(img_data), filename=filename)
+    # Create separate file objects for DM and Channel (Discord needs fresh pointer)
+    file_dm = discord.File(io.BytesIO(img_data), filename=filename)
+    file_ch = discord.File(io.BytesIO(img_data), filename=filename)
+
+    dm_success = False
+
+    # --- 1. DM THE USER (CUSTOMIZED BASED ON TYPE) ---
+    try:
+        user = await bot.fetch_user(int(discord_id))
+        if user:
+            # Customize DM Embed based on license type
+            if license_type == "provisional":
+                embed_dm = discord.Embed(
+                    title="🔰 Provisional License Issued",
+                    description="You have been issued a **Provisional License**. Please drive carefully and adhere to learner restrictions.",
+                    color=0xE67E22  # Orange
+                )
+            else:
+                embed_dm = discord.Embed(
+                    title="🪪 Official Lakeview City License",
+                    description="Your official driver license has been processed and is ready for use.",
+                    color=0x2ECC71  # Green
+                )
+
+            embed_dm.set_image(url=f"attachment://{filename}")
+            embed_dm.set_footer(text="Lakeview City DMV • Official Document",
+                                icon_url=bot.user.avatar.url if bot.user.avatar else None)
+
+            await user.send(embed=embed_dm, file=file_dm)
+            dm_success = True
+    except Exception as e:
+        print(f"Failed to DM user: {e}")
+
+    # --- 2. SEND TO CHANNEL & MANAGE ROLES ---
     channel = bot.get_channel(1436890841703645285)
 
     if channel:
-        embed = discord.Embed(color=0x757575)
-        embed.set_image(url=f"attachment://{filename}")
-        await channel.send(
-            content=f"<@{discord_id}> Your license has been issued!",
-            embed=embed,
-            file=file,
+        # --- ROLE MANAGEMENT LOGIC ---
+        try:
+            guild = channel.guild
+            member = guild.get_member(int(discord_id))
+
+            # If member not in cache, fetch them
+            if not member:
+                try:
+                    member = await guild.fetch_member(int(discord_id))
+                except:
+                    member = None
+
+            if member:
+                # Role IDs defined in request
+                ROLE_PROV_1 = guild.get_role(1436150194726113330)
+                ROLE_PROV_2 = guild.get_role(1454680487917256786)
+                ROLE_OFFICIAL = guild.get_role(1455075670907686912)
+
+                if license_type == "provisional":
+                    # Add provisional roles
+                    if ROLE_PROV_1: await member.add_roles(ROLE_PROV_1)
+                    if ROLE_PROV_2: await member.add_roles(ROLE_PROV_2)
+
+                else:
+                    # Standard/Official License
+                    # Remove the specific provisional role (1454680487917256786)
+                    if ROLE_PROV_2: await member.remove_roles(ROLE_PROV_2)
+                    # Add official role (1455075670907686912)
+                    if ROLE_OFFICIAL: await member.add_roles(ROLE_OFFICIAL)
+        except Exception as e:
+            print(f"Role management error: {e}")
+
+        # --- CHANNEL MESSAGE ---
+        status = "Check your DMs!" if dm_success else "Your DMs are closed, so I'm posting it here!"
+
+        embed_ch = discord.Embed(
+            description=f"**License Issued for <@{discord_id}>**\n{status}",
+            color=0x3498db  # Blue
         )
+        embed_ch.set_image(url=f"attachment://{filename}")
+        embed_ch.set_footer(text="DMV Registry System")
+
+        await channel.send(content=f" <@{discord_id}>", embed=embed_ch, file=file_ch)
+
+
+@bot.tree.command(name="getlicense", description="Retrieve your existing Lakeview license via DM")
+async def getlicense(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # Connect to your existing database
+        async with aiosqlite.connect("workforce.db") as db:
+            cursor = await db.execute(
+                "SELECT * FROM licenses WHERE discord_id = ?",
+                (str(interaction.user.id),)
+            )
+            row = await cursor.fetchone()
+
+        if not row:
+            return await interaction.followup.send("❌ No license found in the system. Please apply first!",
+                                                   ephemeral=True)
+
+        # Re-generating the image based on stored DB data
+        # Note: Mapping depends on your DB schema order
+        # Assuming: 1=username, 3=rp_name, 4=age, 5=addr, 6=eye, 7=height, 8=lic_num, 9=issued, 10=expires
+
+        # We fetch the avatar again to ensure it's fresh
+        avatar_url = interaction.user.display_avatar.url
+        avatar_bytes = requests.get(avatar_url).content
+
+        # Convert stored strings back to datetime objects
+        try:
+            issued = datetime.fromisoformat(row[9])
+            expires = datetime.fromisoformat(row[10])
+        except (ValueError, TypeError):
+            # Fallback if DB format is weird
+            issued = datetime.utcnow()
+            expires = issued + timedelta(days=150)
+
+        # Default to standard for retrieval unless stored differently
+        img = create_license_image(
+            row[1], avatar_bytes, row[2], row[3], row[4],
+            row[5], row[6], row[7], issued, expires, row[8], "standard"
+        )
+
+        # Send via DM
+        filename = f"{row[1]}_license.png"
+        file = discord.File(io.BytesIO(img), filename=filename)
+
+        embed = discord.Embed(title="License Retrieval", color=0x3498db)
+        embed.set_image(url=f"attachment://{filename}")
+        embed.set_footer(text="Lakeview City DMV Archive")
+
+        await interaction.user.send(embed=embed, file=file)
+        await interaction.followup.send("I have sent your license to your Direct-Messages!", ephemeral=True)
+
+    except discord.Forbidden:
+        await interaction.followup.send("I couldn't DM you. Please open your Privacy Settings.", ephemeral=True)
+    except Exception as e:
+        print(e)
+        await interaction.followup.send("An error occurred while retrieving your license.", ephemeral=True)
 
 
 # ============================================================
@@ -327,6 +456,7 @@ async def send_license_to_discord(img_data, filename, discord_id):
 # ============================================================
 
 app = Flask(__name__)
+
 
 @app.route("/license", methods=["POST"])
 def license_endpoint():
@@ -345,6 +475,7 @@ def license_endpoint():
         height = data.get("height")
         discord_id = data.get("discord_id")
         license_type = data.get("license_type", "standard").lower()
+        license_code = data.get("license_code", "C")
         lic_num = data.get("license_number", username)
 
         if not username or not avatar:
@@ -374,9 +505,124 @@ def license_endpoint():
             license_type
         )
 
+        # Pass license_type to the async task
         bot.loop.create_task(
-            send_license_to_discord(img, f"{username}_license.png", discord_id)
+            send_license_to_discord(img, f"{username}_license.png", discord_id, license_type)
         )
+
+        # ============================================================
+        # SAVE LICENSE INFO INTO THE DATABASE FOR DMV POINT SYSTEM
+        # ============================================================
+
+        conn = sqlite3.connect("workforce.db")
+        cur = conn.cursor()
+
+        # Create table if not exists (safety check)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS licenses (
+                discord_id TEXT PRIMARY KEY,
+                roblox_username TEXT,
+                roblox_display TEXT,
+                roleplay_name TEXT,
+                age TEXT,
+                address TEXT,
+                eye_color TEXT,
+                height TEXT,
+                license_number TEXT,
+                issued_at TEXT,
+                expires_at TEXT
+            )
+        """)
+
+        cur.execute(
+            """
+            INSERT INTO licenses (
+                discord_id,
+                roblox_username,
+                roblox_display,
+                roleplay_name,
+                age,
+                address,
+                eye_color,
+                height,
+                license_number,
+                issued_at,
+                expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(discord_id) DO UPDATE SET
+                roblox_username = excluded.roblox_username,
+                roblox_display  = excluded.roblox_display,
+                roleplay_name   = excluded.roleplay_name,
+                age             = excluded.age,
+                address         = excluded.address,
+                eye_color       = excluded.eye_color,
+                height          = excluded.height,
+                license_number  = excluded.license_number,
+                issued_at       = excluded.issued_at,
+                expires_at      = excluded.expires_at
+            """,
+            (
+                discord_id,
+                username,
+                display,
+                roleplay,
+                age,
+                addr,
+                eye,
+                height,
+                lic_num,
+                issued.isoformat(),
+                expires.isoformat(),
+            ),
+        )
+
+        conn.commit()
+
+        # ---- SYNC TO GOOGLE SHEETS IMMEDIATELY ----
+        # Wrapped in try/except to prevent Flask crash if Cog isn't loaded
+        try:
+            from cogs.dmv import DMVCog
+
+            def sync_license_to_sheets():
+                if not bot.is_ready():
+                    return
+
+                dmv = bot.get_cog("DMVCog")
+                if not dmv or not hasattr(dmv, "_worksheet"):
+                    return
+
+                class FakeMember:
+                    def __init__(self, did):
+                        self.id = int(did)
+
+                    def __str__(self):
+                        return f"{self.id}"
+
+                member = FakeMember(discord_id)
+
+                license_info = {
+                    "roblox_username": username,
+                    "roblox_display": display,
+                    "roleplay_name": roleplay,
+                    "license_number": lic_num,
+                    "license_type": license_type,
+                    "license_code": license_code,
+                }
+
+                bot.loop.call_soon_threadsafe(
+                    dmv._update_google_sheet_row,
+                    member,
+                    license_info,
+                    0  # points start at 0
+                )
+
+            sync_license_to_sheets()
+        except ImportError:
+            print("DMV Cog not found, skipping sheets sync.")
+        except Exception as e:
+            print(f"Error syncing to sheets: {e}")
+
+        conn.close()
 
         return jsonify({"status": "ok"}), 200
 
@@ -385,44 +631,62 @@ def license_endpoint():
         print(traceback.format_exc())
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
 # ============================================================
 # SINGLE CORRECT SETUP HOOK
 # ============================================================
-import aiosqlite
 
 async def setup_hook():
     # Create database BEFORE loading any extension that uses it
     bot.db = await aiosqlite.connect("workforce.db")
 
-    # Load other cogs
-    await bot.load_extension("cogs.economy")
-    await bot.load_extension("cogs.erlc_application")
-    await bot.load_extension("cogs.auto_giveaway")
-    print("Cogs loaded")
+    # Load other cogs - Wrapped in try/except to avoid crash if files miss
+    extensions = [
+        "cogs.erlc_application",
+        "cogs.cad",
+        "cogs.dept_roster",  # Fixed space in name usually unlikely in python imports
+        "cogs.economy",
+        "cogs.auto_giveaway",
+        "cogs.blackmarket"
+    ]
+
+    for ext in extensions:
+        try:
+            await bot.load_extension(ext)
+            print(f"Loaded {ext}")
+        except Exception as e:
+            print(f"Skipped {ext}: {e}")
+
 
 bot.setup_hook = setup_hook
 
 
 @bot.event
 async def on_ready():
-    print(f"✅ Logged in as {bot.user} ({bot.user.id})")
+    if getattr(bot, "did_ready", False):
+        return
+    bot.did_ready = True
+
+    print(f"✅ Logged in as {bot.user}")
 
     try:
         synced = await bot.tree.sync()
         print(f"✅ Slash commands synced: {len(synced)}")
     except Exception as e:
-        print("Slash sync error:", e)
-
+        print(f"Sync error: {e}")
 
 
 # ============================================================
-# RUN BOT + FLASK
+# RUN BOT + FLASK (ONLY ONCE)
 # ============================================================
 
-def run_bot():
-    bot.run(TOKEN)
+def run_flask():
+    app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":
-    Thread(target=run_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=8080)
+    if TOKEN:
+        Thread(target=run_flask, daemon=True).start()
+        bot.run(TOKEN)
+    else:
+        print("Set DISCORD_TOKEN env var or create token.txt")
