@@ -1,47 +1,49 @@
 # cogs/economy.py
 from __future__ import annotations
 
-import discord
-from discord.ext import commands, tasks
-from discord import app_commands
-
-import sqlite3
 import asyncio
+import json
 import random
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Tuple, List
+import re
+import sqlite3
+from dataclasses import dataclass
+from datetime import datetime, timezone, date
+from typing import Dict, Optional, Tuple, List, Any
+
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
 
 # ============================================================
 # CONFIG
 # ============================================================
 
-MAIN_GUILD_ID = 1328475009542258688
 DB_NAME = "lakeview_shadow.db"
+MAIN_GUILD_ID = 1328475009542258688
 
-# Economy prefix commands are ONLY allowed here:
+# Economy prefix commands allowed ONLY here
 ECONOMY_PREFIX_CHANNEL_ID = 1442671320910528664
 
-# Shift voice system
+# Shifts
 SALARY_VC_CATEGORY_ID = 1436503704143396914
 AFK_CHANNEL_ID = 1442670867963445329
+AFK_LIMIT_MINUTES = 2  # drag after 2 minutes
 
-# Approvals channels
+# Approvals
 LPD_AUTH_CHANNEL = 1449898275380400404
 LCFR_AUTH_CHANNEL = 1449898317323571235
-# DOC approvals channel (you gave this ID as "DOC Shift auth role", but it's used as a channel here)
 DOC_AUTH_CHANNEL = 1455339511553982536
-
 TRANSFER_AUTH_CHANNEL = 1440448634591121601
 
-# Citation channels
-CITATION_SUBMIT_CHANNEL = 1454978409804337192
-CITATION_LOG_CHANNEL = 1454978126500073658
-COURT_CHANNEL = 1454978555707396312
+# Citations
+CITATION_SUBMIT_CHANNEL = 1454978409804337192      # supervisor review channel
+CITATION_LOG_CHANNEL = 1454978126500073658         # approved log channel
+COURT_CHANNEL = 1454978555707396312                # court revoke channel
 
-# Loan desk (ticket threads created here)
+# Loans
 LOAN_DESK_CHANNEL_ID = 1454184371824361507
 
-# Roles (MAIN server)
+# Roles (main server)
 BANK_STAFF_ROLE_ID = 1436150175637967012
 
 LPD_ROLE_ID = 1436150189227380786
@@ -53,62 +55,56 @@ LCFR_SUPERVISOR_ROLE_ID = 1436150185431666780
 DOC_SUPERVISOR_ROLE_ID = 1455339226823659520
 DISPATCH_ROLE_ID = 1436150188447367168
 
-# Branding (economy embeds)
+# Embeds
 DEFAULT_EMBED_COLOR = 0x757575
-DEFAULT_THUMBNAIL = "https://media.discordapp.net/attachments/1377401295220117746/1437245076945375393/WHITELISTED_NO_BACKGROUND.png?format=webp&quality=lossless"
+DEFAULT_THUMBNAIL = (
+    "https://media.discordapp.net/attachments/1377401295220117746/"
+    "1437245076945375393/WHITELISTED_NO_BACKGROUND.png?format=webp&quality=lossless"
+)
 
-# Branding (citations)
 DPS_COLOR = 0x212C44
-DPS_THUMBNAIL = "https://cdn.discordapp.com/attachments/1445223165692350606/1454978855814168770/DPS.png?animated=true"
+DPS_THUMBNAIL = (
+    "https://cdn.discordapp.com/attachments/1445223165692350606/"
+    "1454978855814168770/DPS.png?ex=69530e27&is=6951bca7&hm=ae2fc26a62e81e96330b9ab9a8745383d616d668b8dca8b75e3c4b58300237d0&animated=true"
+)
 
-# Scratch cards
-SCRATCH_ITEM_NAME = "Scratch Card"
-SCRATCH_PRICE = 250
-
-# ============================================================
-# PAY BY ROLES (OTHER SERVERS)
-# ============================================================
-
-# You said: DPS uses highest role in this server:
+# Pay mapping servers (external)
 DPS_PAY_GUILD_ID = 1445181271344025693
-
-# You said: LCFR roles live in 1445181271344025693
 LCFR_PAY_GUILD_ID = 1449942107614609442
-
-# DOC roles (you didn’t give a separate guild explicitly; adjust if needed)
 DOC_PAY_GUILD_ID = 1452795248387297354
 
-# DPS pay roles per minute
+# DPS pay roles (in DPS_PAY_GUILD_ID)
 DPS_PAY_ROLES: Dict[int, float] = {
-    1445185034544873553: 8.00,   # Officer
-    1445185033412280381: 9.00,   # Sr. Officer
-    1445184929146077255: 9.50,   # Corporal
-    1445184806920130681: 12.00,  # Sergeant
-    1445184771788636182: 13.00,  # Lieutenant
-    1445184753568321747: 13.50,  # Captain
+    1445185034544873553: 8.00,
+    1445185033412280381: 9.00,
+    1445184929146077255: 9.50,
+    1445184806920130681: 12.00,
+    1445184771788636182: 13.00,
+    1445184753568321747: 13.50,
 }
 
-# LCFR pay roles per minute
+# LCFR pay roles (in LCFR_PAY_GUILD_ID)
 LCFR_PAY_ROLES: Dict[int, float] = {
-    1450637490456363020: 8.10,  # FF
-    1450637485125271705: 9.00,  # FF2
-    1450637483153817761: 9.40,  # Specialist
-    1450637480893087835: 10.00, # Trial LT
-    1450637478770901105: 13.00, # Lieutenant
-    1450637476267032697: 14.00, # Captain
+    1450637490456363020: 8.10,
+    1450637485125271705: 9.00,
+    1450637483153817761: 9.40,
+    1450637480893087835: 10.00,
+    1450637478770901105: 13.00,
+    1450637476267032697: 14.00,
 }
 
-# DOC pay roles per minute
+# DOC pay roles (in DOC_PAY_GUILD_ID)
 DOC_PAY_ROLES: Dict[int, float] = {
-    1454154589954637933: 8.00,   # Operator I
-    1454154734809382943: 9.00,   # Operator II
-    1454154783253467136: 12.00,  # Supervisor
-    1454130907127746716: 13.00,  # Sr Supervisor
-    1454154878627741868: 13.50,  # Manager
+    1454154589954637933: 8.00,
+    1454154734809382943: 9.00,
+    1454154783253467136: 12.00,
+    1454130907127746716: 13.00,
+    1454154878627741868: 13.50,
 }
 
 BASE_PAY_PER_MINUTE = 8.00
 
+# Callsigns
 LCFR_CALLSIGNS = {
     "E-13","E-17","R-13","R-17","T-13","T-17","L-13","L-17","TW-13","TW-17","S-13","S-17","B-13","B-17",
     "SO-13","SO-17","WE-13","WE-17","WB-13","WB-17","WT-13","WT-17","M-13","M-17","MCC13","MCC17","BUS13","BUS17",
@@ -116,127 +112,134 @@ LCFR_CALLSIGNS = {
 }
 DOC_CALLSIGNS = {"!DISPATCH", "!SUPERVISOR", "!SECONDARY"}
 
+# Scratch cards
+SCRATCH_ITEM_NAME = "Scratch Card"
+SCRATCH_PRICE = 5.0  # cash ($5)
+SCRATCH_DAILY_LIMIT = 1
+
+# Gambling
+GAMBLE_COOLDOWN_SECONDS = 90
+GAMBLE_WIN_CHANCE = 0.03  # extremely low
+
 # ============================================================
-# PENAL CODES (for autocomplete)
+# PENAL CODES (keep your full list here)
 # ============================================================
 
-# Store as FULL strings so “full penal code” is always included.
-# Format: "CODE — Name (Category)"
 PENAL_CODES: List[str] = [
-    "202P — 2nd Degree Murder (Crimes Against the Person)",
-    "203P — 3rd Degree Murder (Crimes Against the Person)",
-    "204P — Attempted Murder (Crimes Against the Person)",
-    "205P — Aggravated Assault (Crimes Against the Person)",
-    "206P — Assault (Crimes Against the Person)",
-    "207P (1) — Criminal Threats (Crimes Against the Person)",
-    "207P (2) — Threats to Officials (Crimes Against the Person)",
-    "208P — Battery (Crimes Against the Person)",
-    "209P — Aggravated Battery (Crimes Against the Person)",
-    "210P — Domestic Battery (Crimes Against the Person)",
-    "211P — Abduction (Crimes Against the Person)",
-    "212P — Hostage Taking (Crimes Against the Person)",
-    "213P (1) — Restraining Order Violation (Crimes Against the Person)",
-    "213P (2) — Aggravated Violation of Restraining Order (Crimes Against the Person)",
-    "214P — Torture (Crimes Against the Person)",
-    "215P — Child Endangerment (Crimes Against the Person)",
-    "216P — Child Abuse (Crimes Against the Person)",
-    "217P — Elder Abuse (Crimes Against the Person)",
-    "218P — Harassment (Crimes Against the Person)",
-    "219P — Shooting at a Person (Crimes Against the Person)",
-    "220P — Identity Theft (Crimes Against the Person)",
-    "221P — Human Rights Violation (Crimes Against the Person)",
-    "222P — Criminal Malpractice (Crimes Against the Person)",
-    "223P — Stalking (Crimes Against the Person)",
-    "224P — Assassination Services (Crimes Against the Person)",
-    "225P — Blackmail (Crimes Against the Person)",
-    "226P — Extortion (Crimes Against the Person)",
-    "227P — False Imprisonment (Crimes Against the Person)",
-    "228P — Vehicular Assault (Crimes Against the Person)",
-    "229P — Criminal Negligence (Crimes Against the Person)",
-    "230P — Hate-Motivated Harassment (Crimes Against the Person)",
-    "231P — Witness Intimidation (Crimes Against the Person)",
-    "232P — Animal Cruelty (Crimes Against the Person)",
-    "301R (1) — Arson (Crimes Against Property)",
-    "301R (2) — Aggravated Arson (Crimes Against Property)",
-    "302R — Petty Theft (Crimes Against Property)",
-    "303R — Grand Theft (Crimes Against Property)",
-    "304R — Auto Theft (Crimes Against Property)",
-    "305R — Vandalism (Crimes Against Property)",
-    "306R — Property Destruction (Crimes Against Property)",
-    "307R — Defacing Public Property (Crimes Against Property)",
-    "308R — Damage to Government Property (Crimes Against Property)",
-    "309R — Shoplifting (Crimes Against Property)",
-    "310R (1) — Trespassing (Crimes Against Property)",
-    "310R (2) — Criminal Trespassing (Crimes Against Property)",
-    "311R — Burglary Tools (Crimes Against Property)",
-    "312R — Breaking and Entering (Crimes Against Property)",
-    "313R — Stolen Property Possession (Crimes Against Property)",
-    "314R — Damage to Emergency Equipment (Crimes Against Property)",
-    "315R — Embezzlement (Crimes Against Property)",
-    "316R — Fraud (Crimes Against Property)",
-    "317R — Misuse of Government Property (Crimes Against Property)",
-    "318R — Credit Card Fraud (Crimes Against Property)",
-    "319R — Dumpster Diving (Restricted) (Crimes Against Property)",
-    "320R — Unlawful Device Tampering (Crimes Against Property)",
-    "321R — Construction Site Trespass (Crimes Against Property)",
-    "322R — Tagging/Graffiti (Crimes Against Property)",
-    "401S — Disorderly Conduct (Safety & Order)",
-    "402S — Public Intoxication (Safety & Order)",
-    "403S — Disturbing the Peace (Safety & Order)",
-    "404S — Failure to Disperse (Safety & Order)",
-    "405S — Unlawful Assembly (Safety & Order)",
-    "406S — Loitering with Criminal Intent (Safety & Order)",
-    "407S — 911 Abuse (Safety & Order)",
-    "408S — Roadway Obstruction (Safety & Order)",
-    "409S — Inciting a Riot (Safety & Order)",
-    "410S — Participating in a Riot (Safety & Order)",
-    "411S — Reckless Public Conduct (Safety & Order)",
-    "412S — Impersonating an Official (Safety & Order)",
-    "413S — Blocking Emergency Access (Safety & Order)",
-    "414S — Public Hazard (Safety & Order)",
-    "415S — Public Endangerment (Safety & Order)",
-    "416S — Mass Panic (Safety & Order)",
-    "417S — Minor with Alcohol (Safety & Order)",
-    "418S — Loitering (Safety & Order)",
-    "419S — False Emergency Report (Safety & Order)",
-    "420S — Obstruction of Investigation (Safety & Order)",
-    "421S — Curfew Violation (Safety & Order)",
-    "422S — Dangerous Fireworks (Safety & Order)",
-    "423S — Improper Use of Public Space (Safety & Order)",
-    "424S — Public Indecency (Safety & Order)",
-    "501F — Open Carry (Firearms & Weapons)",
-    "502F — Brandishing (Firearms & Weapons)",
-    "503F — Firing a Gun in Public (Firearms & Weapons)",
-    "504F — Illegal Weapons Possession (Firearms & Weapons)",
-    "505F — Banned Ammo (Firearms & Weapons)",
-    "506F — Firearm Trafficking (Firearms & Weapons)",
-    "507F — Weapon in Restricted Area (Firearms & Weapons)",
-    "508F — Gun Used During Crime (Firearms & Weapons)",
-    "509F — Felon with a Gun (Firearms & Weapons)",
-    "510F — Negligent Discharge (Firearms & Weapons)",
-    "511F — Weapon Threat (Firearms & Weapons)",
-    "512F — Replica Firearm Misuse (Firearms & Weapons)",
-    "513F — Firearm While Intoxicated (Firearms & Weapons)",
-    "514F — Juvenile with Firearm (Firearms & Weapons)",
-    "515F — No Permit (Firearms & Weapons)",
-    "516F — Explosive Possession (Firearms & Weapons)",
-    "517F — Silencer Possession (Firearms & Weapons)",
-    "518F — Weapon Smuggling (Firearms & Weapons)",
-    "519F — Improvised Weapon Use (Firearms & Weapons)",
-    "520F — Armor-Piercing Ammo (Firearms & Weapons)",
-    "601V (1) — Speeding 1–15 MPH (Traffic & Vehicles)",
-    "601V (2) — Speeding 16–34 MPH (Traffic & Vehicles)",
-    "601V (3) — Felony Speeding 35+ MPH (Traffic & Vehicles)",
-    "601V (4) — Unpaved Road Speeding (Traffic & Vehicles)",
-    "602V — Aggressive Driving (Traffic & Vehicles)",
-    "603V — Reckless Driving (Traffic & Vehicles)",
-    "604V — Distracted Driving (Traffic & Vehicles)",
-    "605V — Unlawful U-Turn (Traffic & Vehicles)",
-    "606V — Failure to Yield to Emergency Vehicles (Traffic & Vehicles)",
-    "607V — Driving Without Headlights at Night (Traffic & Vehicles)",
-    "608V — Wrong-Way Driving (Traffic & Vehicles)",
-    "609V — Off-Road Vehicle Misuse (Traffic & Vehicles)",
-    "610V — Hit and Run (Property Damage) (Traffic & Vehicles)",
+    "202P — Crimes Against the Person — 2nd Degree Murder",
+    "203P — Crimes Against the Person — 3rd Degree Murder",
+    "204P — Crimes Against the Person — Attempted Murder",
+    "205P — Crimes Against the Person — Aggravated Assault",
+    "206P — Crimes Against the Person — Assault",
+    "207P (1) — Crimes Against the Person — Criminal Threats",
+    "207P (2) — Crimes Against the Person — Threats to Officials",
+    "208P — Crimes Against the Person — Battery",
+    "209P — Crimes Against the Person — Aggravated Battery",
+    "210P — Crimes Against the Person — Domestic Battery",
+    "211P — Crimes Against the Person — Abduction",
+    "212P — Crimes Against the Person — Hostage Taking",
+    "213P (1) — Crimes Against the Person — Restraining Order Violation",
+    "213P (2) — Crimes Against the Person — Aggravated Violation of Restraining Order",
+    "214P — Crimes Against the Person — Torture",
+    "215P — Crimes Against the Person — Child Endangerment",
+    "216P — Crimes Against the Person — Child Abuse",
+    "217P — Crimes Against the Person — Elder Abuse",
+    "218P — Crimes Against the Person — Harassment",
+    "219P — Crimes Against the Person — Shooting at a Person",
+    "220P — Crimes Against the Person — Identity Theft",
+    "221P — Crimes Against the Person — Human Rights Violation",
+    "222P — Crimes Against the Person — Criminal Malpractice",
+    "223P — Crimes Against the Person — Stalking",
+    "224P — Crimes Against the Person — Assassination Services",
+    "225P — Crimes Against the Person — Blackmail",
+    "226P — Crimes Against the Person — Extortion",
+    "227P — Crimes Against the Person — False Imprisonment",
+    "228P — Crimes Against the Person — Vehicular Assault",
+    "229P — Crimes Against the Person — Criminal Negligence",
+    "230P — Crimes Against the Person — Hate-Motivated Harassment",
+    "231P — Crimes Against the Person — Witness Intimidation",
+    "232P — Crimes Against the Person — Animal Cruelty",
+    "301R (1) — Crimes Against Property — Arson",
+    "301R (2) — Crimes Against Property — Aggravated Arson",
+    "302R — Crimes Against Property — Petty Theft",
+    "303R — Crimes Against Property — Grand Theft",
+    "304R — Crimes Against Property — Auto Theft",
+    "305R — Crimes Against Property — Vandalism",
+    "306R — Crimes Against Property — Property Destruction",
+    "307R — Crimes Against Property — Defacing Public Property",
+    "308R — Crimes Against Property — Damage to Government Property",
+    "309R — Crimes Against Property — Shoplifting",
+    "310R (1) — Crimes Against Property — Trespassing",
+    "310R (2) — Crimes Against Property — Criminal Trespassing",
+    "311R — Crimes Against Property — Burglary Tools",
+    "312R — Crimes Against Property — Breaking and Entering",
+    "313R — Crimes Against Property — Stolen Property Possession",
+    "314R — Crimes Against Property — Damage to Emergency Equipment",
+    "315R — Crimes Against Property — Embezzlement",
+    "316R — Crimes Against Property — Fraud",
+    "317R — Crimes Against Property — Misuse of Government Property",
+    "318R — Crimes Against Property — Credit Card Fraud",
+    "319R — Crimes Against Property — Dumpster Diving (Restricted)",
+    "320R — Crimes Against Property — Unlawful Device Tampering",
+    "321R — Crimes Against Property — Construction Site Trespass",
+    "322R — Crimes Against Property — Tagging/Graffiti",
+    "401S — Safety & Order — Disorderly Conduct",
+    "402S — Safety & Order — Public Intoxication",
+    "403S — Safety & Order — Disturbing the Peace",
+    "404S — Safety & Order — Failure to Disperse",
+    "405S — Safety & Order — Unlawful Assembly",
+    "406S — Safety & Order — Loitering with Criminal Intent",
+    "407S — Safety & Order — 911 Abuse",
+    "408S — Safety & Order — Roadway Obstruction",
+    "409S — Safety & Order — Inciting a Riot",
+    "410S — Safety & Order — Participating in a Riot",
+    "411S — Safety & Order — Reckless Public Conduct",
+    "412S — Safety & Order — Impersonating an Official",
+    "413S — Safety & Order — Blocking Emergency Access",
+    "414S — Safety & Order — Public Hazard",
+    "415S — Safety & Order — Public Endangerment",
+    "416S — Safety & Order — Mass Panic",
+    "417S — Safety & Order — Minor with Alcohol",
+    "418S — Safety & Order — Loitering",
+    "419S — Safety & Order — False Emergency Report",
+    "420S — Safety & Order — Obstruction of Investigation",
+    "421S — Safety & Order — Curfew Violation",
+    "422S — Safety & Order — Dangerous Fireworks",
+    "423S — Safety & Order — Improper Use of Public Space",
+    "424S — Safety & Order — Public Indecency",
+    "501F — Firearms & Weapons — Open Carry",
+    "502F — Firearms & Weapons — Brandishing",
+    "503F — Firearms & Weapons — Firing a Gun in Public",
+    "504F — Firearms & Weapons — Illegal Weapons Possession",
+    "505F — Firearms & Weapons — Banned Ammo",
+    "506F — Firearms & Weapons — Firearm Trafficking",
+    "507F — Firearms & Weapons — Weapon in Restricted Area",
+    "508F — Firearms & Weapons — Gun Used During Crime",
+    "509F — Firearms & Weapons — Felon with a Gun",
+    "510F — Firearms & Weapons — Negligent Discharge",
+    "511F — Firearms & Weapons — Weapon Threat",
+    "512F — Firearms & Weapons — Replica Firearm Misuse",
+    "513F — Firearms & Weapons — Firearm While Intoxicated",
+    "514F — Firearms & Weapons — Juvenile with Firearm",
+    "515F — Firearms & Weapons — No Permit",
+    "516F — Firearms & Weapons — Explosive Possession",
+    "517F — Firearms & Weapons — Silencer Possession",
+    "518F — Firearms & Weapons — Weapon Smuggling",
+    "519F — Firearms & Weapons — Improvised Weapon Use",
+    "520F — Firearms & Weapons — Armor-Piercing Ammo",
+    "601V (1) — Traffic & Vehicles — Speeding 1–15 MPH",
+    "601V (2) — Traffic & Vehicles — Speeding 16–34 MPH",
+    "601V (3) — Traffic & Vehicles — Felony Speeding 35+ MPH",
+    "601V (4) — Traffic & Vehicles — Unpaved Road Speeding",
+    "602V — Traffic & Vehicles — Aggressive Driving",
+    "603V — Traffic & Vehicles — Reckless Driving",
+    "604V — Traffic & Vehicles — Distracted Driving",
+    "605V — Traffic & Vehicles — Unlawful U-Turn",
+    "606V — Traffic & Vehicles — Failure to Yield to Emergency Vehicles",
+    "607V — Traffic & Vehicles — Driving Without Headlights at Night",
+    "608V — Traffic & Vehicles — Wrong-Way Driving",
+    "609V — Traffic & Vehicles — Off-Road Vehicle Misuse",
+    "610V — Traffic & Vehicles — Hit and Run (Property Damage)",
 ]
 
 async def penal_autocomplete(_: discord.Interaction, current: str):
@@ -259,7 +262,19 @@ def ts_discord(ts: int, style: str = "F") -> str:
 def money(x: float) -> str:
     return f"${x:,.2f}"
 
-def parse_amount_arg(raw: str, *, max_value: float) -> Optional[float]:
+def has_role(member: discord.Member, role_id: int) -> bool:
+    return any(r.id == role_id for r in member.roles)
+
+def first_token(display_name: str) -> str:
+    return (display_name or "").strip().split(" ")[0].strip()
+
+def normalize_callsign(tok: str) -> str:
+    t = (tok or "").upper()
+    if t.endswith("-R") or t.endswith("-O"):
+        t = t[:-2]
+    return t
+
+def parse_amount(raw: str, *, max_value: float) -> Optional[float]:
     s = str(raw).strip().lower()
     if s == "all":
         return float(max_value)
@@ -272,17 +287,51 @@ def parse_amount_arg(raw: str, *, max_value: float) -> Optional[float]:
         return None
     return v
 
-def first_token(display_name: str) -> str:
-    return (display_name or "").strip().split(" ")[0].strip()
+def parse_user_id(raw: str) -> Optional[int]:
+    s = (raw or "").strip()
+    m = re.search(r"(\d{15,25})", s)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
 
-def normalize_callsign(tok: str) -> str:
-    t = tok.upper()
-    if t.endswith("-R") or t.endswith("-O"):
-        t = t[:-2]
-    return t
+async def respond_safely(
+    itx: discord.Interaction,
+    *,
+    content: str | None = None,
+    embed: discord.Embed | None = None,
+    view: discord.ui.View | None = None,
+    ephemeral: bool = False,
+):
+    kwargs: Dict[str, Any] = {"ephemeral": ephemeral}
+    if content is not None:
+        kwargs["content"] = content
+    if embed is not None:
+        kwargs["embed"] = embed
+    if view is not None:
+        kwargs["view"] = view
 
-def has_role(member: discord.Member, role_id: int) -> bool:
-    return any(r.id == role_id for r in member.roles)
+    try:
+        if not itx.response.is_done():
+            await itx.response.send_message(**kwargs)
+        else:
+            await itx.followup.send(**kwargs)
+    except (discord.NotFound, discord.InteractionResponded):
+        # fallback: just try send to channel
+        try:
+            if itx.channel:
+                fallback: Dict[str, Any] = {}
+                if content is not None:
+                    fallback["content"] = content
+                if embed is not None:
+                    fallback["embed"] = embed
+                if view is not None:
+                    fallback["view"] = view
+                await itx.channel.send(**fallback)
+        except Exception:
+            pass
 
 async def get_external_member(bot: commands.Bot, guild_id: int, uid: int) -> Optional[discord.Member]:
     g = bot.get_guild(guild_id)
@@ -308,48 +357,19 @@ def highest_rate(member: Optional[discord.Member], mapping: Dict[int, float]) ->
     return best
 
 # ============================================================
-# SAFE RESPONDER (fixes view=None crash + dead interactions)
+# DATABASE + MIGRATIONS
 # ============================================================
 
-async def respond_safely(
-    itx: discord.Interaction,
-    *,
-    content: str | None = None,
-    embed: discord.Embed | None = None,
-    view: discord.ui.View | None = None,
-    ephemeral: bool = False
-):
-    kwargs = {"ephemeral": ephemeral}
-    if content is not None:
-        kwargs["content"] = content
-    if embed is not None:
-        kwargs["embed"] = embed
-    if view is not None:
-        kwargs["view"] = view  # only include when real
+def column_exists(conn: sqlite3.Connection, table: str, col: str) -> bool:
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    return any(r[1] == col for r in cur.fetchall())
 
-    try:
-        if not itx.response.is_done():
-            await itx.response.send_message(**kwargs)
-        else:
-            await itx.followup.send(**kwargs)
-    except (discord.NotFound, discord.InteractionResponded):
-        # token dead or already responded elsewhere → fallback to channel
-        try:
-            if itx.channel:
-                fallback = {}
-                if content is not None:
-                    fallback["content"] = content
-                if embed is not None:
-                    fallback["embed"] = embed
-                if view is not None:
-                    fallback["view"] = view
-                await itx.channel.send(**fallback)
-        except Exception:
-            pass
-
-# ============================================================
-# DATABASE
-# ============================================================
+def table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,)
+    ).fetchone()
+    return bool(row)
 
 class Database:
     def __init__(self):
@@ -368,6 +388,7 @@ class Database:
                     bank REAL DEFAULT 5000
                 )
             """)
+
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS active_shifts (
                     uid TEXT PRIMARY KEY,
@@ -378,6 +399,7 @@ class Database:
                     afk_timer INTEGER DEFAULT 0
                 )
             """)
+
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS pending_tx (
                     tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -390,6 +412,7 @@ class Database:
                     meta TEXT DEFAULT NULL
                 )
             """)
+
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS inventory (
                     uid TEXT,
@@ -398,6 +421,7 @@ class Database:
                     PRIMARY KEY (uid, item_name)
                 )
             """)
+
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS inventory_purchases (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -407,12 +431,15 @@ class Database:
                     purchased_ts INTEGER
                 )
             """)
+
+            # scratch daily (we will MIGRATE columns below if missing)
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS scratch_daily (
                     uid TEXT PRIMARY KEY,
                     last_buy_date TEXT
                 )
             """)
+
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS citations (
                     case_code TEXT PRIMARY KEY,
@@ -428,6 +455,7 @@ class Database:
                     decided_by TEXT
                 )
             """)
+
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS loans (
                     loan_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -441,13 +469,61 @@ class Database:
                 )
             """)
 
+            # admin/history audit
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS money_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts INTEGER,
+                    actor_id TEXT,
+                    target_id TEXT,
+                    action TEXT,
+                    account TEXT,
+                    amount REAL,
+                    before_cash REAL,
+                    before_bank REAL,
+                    after_cash REAL,
+                    after_bank REAL,
+                    note TEXT
+                )
+            """)
+
+            # gamble cooldown
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS gamble_cooldown (
+                    uid TEXT PRIMARY KEY,
+                    last_ts INTEGER
+                )
+            """)
+
     def repair_tables(self):
-        # If your old inventory table didn't have qty, add it.
-        try:
-            self.conn.execute("SELECT qty FROM inventory LIMIT 1")
-        except sqlite3.OperationalError:
+        # inventory qty
+        if table_exists(self.conn, "inventory") and not column_exists(self.conn, "inventory", "qty"):
             with self.conn:
                 self.conn.execute("ALTER TABLE inventory ADD COLUMN qty INTEGER DEFAULT 0")
+
+        # active_shifts missing cols
+        for col, ddl in [
+            ("start_ts", "ALTER TABLE active_shifts ADD COLUMN start_ts INTEGER DEFAULT 0"),
+            ("last_seen_ts", "ALTER TABLE active_shifts ADD COLUMN last_seen_ts INTEGER DEFAULT 0"),
+            ("afk_timer", "ALTER TABLE active_shifts ADD COLUMN afk_timer INTEGER DEFAULT 0"),
+        ]:
+            if table_exists(self.conn, "active_shifts") and not column_exists(self.conn, "active_shifts", col):
+                with self.conn:
+                    self.conn.execute(ddl)
+
+        # pending_tx note/meta
+        for col, ddl in [
+            ("note", "ALTER TABLE pending_tx ADD COLUMN note TEXT DEFAULT NULL"),
+            ("meta", "ALTER TABLE pending_tx ADD COLUMN meta TEXT DEFAULT NULL"),
+        ]:
+            if table_exists(self.conn, "pending_tx") and not column_exists(self.conn, "pending_tx", col):
+                with self.conn:
+                    self.conn.execute(ddl)
+
+        # ✅ FIX YOUR ERROR: scratch_daily.last_buy_date missing
+        if table_exists(self.conn, "scratch_daily") and not column_exists(self.conn, "scratch_daily", "last_buy_date"):
+            with self.conn:
+                self.conn.execute("ALTER TABLE scratch_daily ADD COLUMN last_buy_date TEXT")
 
     async def get_user(self, uid: int | str):
         uid = str(uid)
@@ -464,11 +540,99 @@ class Database:
 db = Database()
 
 # ============================================================
-# VIEWS (Approvals)
+# INVENTORY HELPERS
+# ============================================================
+
+def get_inventory_qty(uid: int, item_name: str) -> int:
+    row = db.conn.execute(
+        "SELECT qty FROM inventory WHERE uid=? AND item_name=?",
+        (str(uid), item_name),
+    ).fetchone()
+    return int(row["qty"]) if row else 0
+
+def add_inventory_item(uid: int, item_name: str, qty: int, purchased_ts: Optional[int] = None):
+    qty = int(qty)
+    if qty <= 0:
+        return
+    with db.conn:
+        db.conn.execute("""
+            INSERT INTO inventory (uid, item_name, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(uid, item_name) DO UPDATE SET qty = qty + excluded.qty
+        """, (str(uid), item_name, qty))
+        db.conn.execute("""
+            INSERT INTO inventory_purchases (uid, item_name, qty, purchased_ts)
+            VALUES (?, ?, ?, ?)
+        """, (str(uid), item_name, qty, int(purchased_ts or now_ts())))
+
+def remove_inventory_item(uid: int, item_name: str, qty: int) -> bool:
+    qty = int(qty)
+    if qty <= 0:
+        return False
+    cur_qty = get_inventory_qty(uid, item_name)
+    if cur_qty < qty:
+        return False
+    with db.conn:
+        db.conn.execute(
+            "UPDATE inventory SET qty = qty - ? WHERE uid=? AND item_name=?",
+            (qty, str(uid), item_name),
+        )
+    return True
+
+# ============================================================
+# HISTORY HELPERS
+# ============================================================
+
+def log_money_history(
+    *,
+    actor_id: int,
+    target_id: int,
+    action: str,
+    account: str,
+    amount: float,
+    before_cash: float,
+    before_bank: float,
+    after_cash: float,
+    after_bank: float,
+    note: str = "",
+):
+    with db.conn:
+        db.conn.execute("""
+            INSERT INTO money_history
+            (ts, actor_id, target_id, action, account, amount, before_cash, before_bank, after_cash, after_bank, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            now_ts(),
+            str(actor_id),
+            str(target_id),
+            action,
+            account,
+            float(amount),
+            float(before_cash),
+            float(before_bank),
+            float(after_cash),
+            float(after_bank),
+            note[:500],
+        ))
+
+# ============================================================
+# VIEWS
 # ============================================================
 
 class ApprovalButtons(discord.ui.View):
-    def __init__(self, cog: "EconomyCog", tx_id: int, tx_type: str, sender: str, receiver: str, amount: float, *, note: str | None = None, meta: str | None = None):
+    """Approves TRANSFERS + SHIFTS + LOANS"""
+    def __init__(
+        self,
+        cog: "EconomyCog",
+        tx_id: int,
+        tx_type: str,
+        sender: str,
+        receiver: str,
+        amount: float,
+        *,
+        note: str | None = None,
+        meta: str | None = None,
+    ):
         super().__init__(timeout=None)
         self.cog = cog
         self.tx_id = int(tx_id)
@@ -480,18 +644,15 @@ class ApprovalButtons(discord.ui.View):
         self.meta = meta
 
     def _allowed(self, member: discord.Member) -> bool:
-        # Transfer + Loan approvals: Bank Staff only
+        # only role pinged can approve: BANK staff for loans/transfers
         if self.tx_type in ("TRANSFER", "LOAN"):
             return has_role(member, BANK_STAFF_ROLE_ID)
-
-        # Shift approvals: dept supervisors
         if self.tx_type == "DPS_SHIFT":
             return has_role(member, LPD_SUPERVISOR_ROLE_ID)
         if self.tx_type == "LCFR_SHIFT":
             return has_role(member, LCFR_SUPERVISOR_ROLE_ID)
         if self.tx_type == "DOC_SHIFT":
             return has_role(member, DOC_SUPERVISOR_ROLE_ID)
-
         return False
 
     @discord.ui.button(label="Approve", style=discord.ButtonStyle.success)
@@ -500,44 +661,116 @@ class ApprovalButtons(discord.ui.View):
             return await respond_safely(itx, content="❌ You can't approve this.", ephemeral=True)
 
         async with db.lock:
-            with db.conn:
-                # SHIFT + LOAN pay: add to receiver bank
-                if self.tx_type in ("DPS_SHIFT", "LCFR_SHIFT", "DOC_SHIFT", "LOAN"):
-                    db.conn.execute("UPDATE users SET bank = bank + ? WHERE uid = ?", (self.amount, self.receiver))
+            # verify still pending
+            row = db.conn.execute("SELECT status FROM pending_tx WHERE tx_id=?", (self.tx_id,)).fetchone()
+            if not row or row["status"] != "PENDING":
+                return await respond_safely(itx, content="⚠️ This request is no longer pending.", ephemeral=True)
 
-                # TRANSFER: subtract sender bank, add receiver bank
+            # transfer needs re-check funds at approval time
+            if self.tx_type == "TRANSFER":
+                s = await db.get_user(self.sender)
+                if float(s["bank"]) < self.amount:
+                    with db.conn:
+                        db.conn.execute("UPDATE pending_tx SET status='DENIED' WHERE tx_id=?", (self.tx_id,))
+                    return await respond_safely(itx, content="❌ Denied: sender no longer has enough bank funds.", ephemeral=True)
+
+            with db.conn:
+                if self.tx_type in ("DPS_SHIFT", "LCFR_SHIFT", "DOC_SHIFT"):
+                    # pay employee to bank
+                    u_before = await db.get_user(self.receiver)
+                    before_cash = float(u_before["cash"])
+                    before_bank = float(u_before["bank"])
+                    db.conn.execute("UPDATE users SET bank=bank+? WHERE uid=?", (self.amount, self.receiver))
+                    u_after = await db.get_user(self.receiver)
+                    log_money_history(
+                        actor_id=itx.user.id,
+                        target_id=int(self.receiver),
+                        action="SHIFT_APPROVED",
+                        account="bank",
+                        amount=self.amount,
+                        before_cash=before_cash, before_bank=before_bank,
+                        after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                        note=self.tx_type
+                    )
+
+                elif self.tx_type == "LOAN":
+                    # pay borrower to bank + mark loans table approved (loan_id in meta)
+                    u_before = await db.get_user(self.receiver)
+                    before_cash = float(u_before["cash"])
+                    before_bank = float(u_before["bank"])
+                    db.conn.execute("UPDATE users SET bank=bank+? WHERE uid=?", (self.amount, self.receiver))
+                    if self.meta:
+                        try:
+                            loan_id = int(self.meta)
+                            db.conn.execute(
+                                "UPDATE loans SET status='APPROVED', decided_ts=?, decided_by=? WHERE loan_id=?",
+                                (now_ts(), str(itx.user.id), loan_id)
+                            )
+                        except Exception:
+                            pass
+                    u_after = await db.get_user(self.receiver)
+                    log_money_history(
+                        actor_id=itx.user.id,
+                        target_id=int(self.receiver),
+                        action="LOAN_APPROVED",
+                        account="bank",
+                        amount=self.amount,
+                        before_cash=before_cash, before_bank=before_bank,
+                        after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                        note=self.note or ""
+                    )
+
                 elif self.tx_type == "TRANSFER":
-                    db.conn.execute("UPDATE users SET bank = bank - ? WHERE uid = ?", (self.amount, self.sender))
-                    db.conn.execute("UPDATE users SET bank = bank + ? WHERE uid = ?", (self.amount, self.receiver))
+                    # move bank -> bank
+                    s_before = await db.get_user(self.sender)
+                    r_before = await db.get_user(self.receiver)
+                    sbc, sbb = float(s_before["cash"]), float(s_before["bank"])
+                    rbc, rbb = float(r_before["cash"]), float(r_before["bank"])
+
+                    db.conn.execute("UPDATE users SET bank=bank-? WHERE uid=?", (self.amount, self.sender))
+                    db.conn.execute("UPDATE users SET bank=bank+? WHERE uid=?", (self.amount, self.receiver))
+
+                    s_after = await db.get_user(self.sender)
+                    r_after = await db.get_user(self.receiver)
+
+                    log_money_history(
+                        actor_id=itx.user.id,
+                        target_id=int(self.sender),
+                        action="TRANSFER_APPROVED_OUT",
+                        account="bank",
+                        amount=-self.amount,
+                        before_cash=sbc, before_bank=sbb,
+                        after_cash=float(s_after["cash"]), after_bank=float(s_after["bank"]),
+                        note=f"to {self.receiver} | {self.note or ''}"
+                    )
+                    log_money_history(
+                        actor_id=itx.user.id,
+                        target_id=int(self.receiver),
+                        action="TRANSFER_APPROVED_IN",
+                        account="bank",
+                        amount=self.amount,
+                        before_cash=rbc, before_bank=rbb,
+                        after_cash=float(r_after["cash"]), after_bank=float(r_after["bank"]),
+                        note=f"from {self.sender} | {self.note or ''}"
+                    )
 
                 db.conn.execute("UPDATE pending_tx SET status='APPROVED' WHERE tx_id=?", (self.tx_id,))
 
-        # Post acceptance notice for transfers in economy channel (plain message with pings)
-        if self.tx_type == "TRANSFER":
-            eco = itx.guild.get_channel(ECONOMY_PREFIX_CHANNEL_ID)
-            if eco:
+        # announce approvals in economy channel
+        eco = itx.guild.get_channel(ECONOMY_PREFIX_CHANNEL_ID)
+        if eco:
+            if self.tx_type == "TRANSFER":
                 await eco.send(
-                    f"✅ **Transfer Approved**: <@{self.sender}> → <@{self.receiver}> | **{money(self.amount)}**\n"
+                    f"✅ **Transfer Approved**: <@{self.sender}> ({self.sender}) → <@{self.receiver}> ({self.receiver}) | **{money(self.amount)}**\n"
                     f"📝 Note: {self.note or 'N/A'}"
                 )
-
-        # Loan accepted notice
-        if self.tx_type == "LOAN":
-            # mark loan status too if meta has loan_id
-            loan_id = self.meta
-            async with db.lock:
-                with db.conn:
-                    if loan_id:
-                        db.conn.execute("UPDATE loans SET status='APPROVED', decided_ts=?, decided_by=? WHERE loan_id=?",
-                                        (now_ts(), str(itx.user.id), int(loan_id)))
-            eco = itx.guild.get_channel(ECONOMY_PREFIX_CHANNEL_ID)
-            if eco:
+            elif self.tx_type == "LOAN":
                 await eco.send(
-                    f"✅ **Loan Approved**: <@{self.receiver}> | **{money(self.amount)}**\n"
+                    f"✅ **Loan Approved**: <@{self.receiver}> ({self.receiver}) | **{money(self.amount)}**\n"
                     f"📝 Reason: {self.note or 'N/A'}"
                 )
 
-        # DM payslip for shifts
+        # shift payslip DM
         if self.tx_type in ("DPS_SHIFT", "LCFR_SHIFT", "DOC_SHIFT"):
             await self.cog.dm_payslip(itx.guild, int(self.receiver), self.amount, self.meta)
 
@@ -552,32 +785,33 @@ class ApprovalButtons(discord.ui.View):
             with db.conn:
                 db.conn.execute("UPDATE pending_tx SET status='DENIED' WHERE tx_id=?", (self.tx_id,))
 
-        # Transfer deny notice
-        if self.tx_type == "TRANSFER":
-            eco = itx.guild.get_channel(ECONOMY_PREFIX_CHANNEL_ID)
-            if eco:
+                # if loan, mark loans denied as well (loan_id in meta)
+                if self.tx_type == "LOAN" and self.meta:
+                    try:
+                        loan_id = int(self.meta)
+                        db.conn.execute(
+                            "UPDATE loans SET status='DENIED', decided_ts=?, decided_by=? WHERE loan_id=?",
+                            (now_ts(), str(itx.user.id), loan_id)
+                        )
+                    except Exception:
+                        pass
+
+        eco = itx.guild.get_channel(ECONOMY_PREFIX_CHANNEL_ID)
+        if eco:
+            if self.tx_type == "TRANSFER":
                 await eco.send(
-                    f"❌ **Transfer Denied**: <@{self.sender}> → <@{self.receiver}> | **{money(self.amount)}**\n"
+                    f"❌ **Transfer Denied**: <@{self.sender}> ({self.sender}) → <@{self.receiver}> ({self.receiver}) | **{money(self.amount)}**\n"
                     f"📝 Note: {self.note or 'N/A'}"
                 )
-
-        if self.tx_type == "LOAN":
-            loan_id = self.meta
-            async with db.lock:
-                with db.conn:
-                    if loan_id:
-                        db.conn.execute("UPDATE loans SET status='DENIED', decided_ts=?, decided_by=? WHERE loan_id=?",
-                                        (now_ts(), str(itx.user.id), int(loan_id)))
-            eco = itx.guild.get_channel(ECONOMY_PREFIX_CHANNEL_ID)
-            if eco:
+            elif self.tx_type == "LOAN":
                 await eco.send(
-                    f"❌ **Loan Denied**: <@{self.receiver}> | **{money(self.amount)}**\n"
+                    f"❌ **Loan Denied**: <@{self.receiver}> ({self.receiver}) | **{money(self.amount)}**\n"
                     f"📝 Reason: {self.note or 'N/A'}"
                 )
 
         await itx.response.edit_message(content=f"❌ Denied by {itx.user.mention}", view=None)
 
-class CourtRevokeView(discord.ui.View):
+class RevokeCitationView(discord.ui.View):
     def __init__(self, cog: "EconomyCog", case_code: str, citizen_id: int, amount: float):
         super().__init__(timeout=None)
         self.cog = cog
@@ -587,49 +821,71 @@ class CourtRevokeView(discord.ui.View):
 
     @discord.ui.button(label="Revoke & Refund", style=discord.ButtonStyle.danger)
     async def revoke(self, itx: discord.Interaction, _: discord.ui.Button):
-        if not itx.user.guild_permissions.administrator:
+        if not itx.guild or not itx.user.guild_permissions.administrator:
             return await respond_safely(itx, content="Admin only.", ephemeral=True)
 
         async with db.lock:
-            with db.conn:
-                db.conn.execute("UPDATE users SET bank=bank+? WHERE uid=?", (self.amount, str(self.citizen_id)))
-                db.conn.execute("UPDATE citations SET status='REVOKED' WHERE case_code=?", (self.case_code,))
+            u_before = await db.get_user(self.citizen_id)
+            before_cash = float(u_before["cash"])
+            before_bank = float(u_before["bank"])
 
-        await itx.response.edit_message(content=f"⚖️ Revoked `{self.case_code}` and refunded {money(self.amount)}.", view=None)
+            with db.conn:
+                db.conn.execute("UPDATE users SET bank = bank + ? WHERE uid = ?", (self.amount, str(self.citizen_id)))
+                db.conn.execute(
+                    "UPDATE citations SET status='REVOKED', decided_ts=?, decided_by=? WHERE case_code=?",
+                    (now_ts(), str(itx.user.id), self.case_code),
+                )
+            u_after = await db.get_user(self.citizen_id)
+            log_money_history(
+                actor_id=itx.user.id,
+                target_id=self.citizen_id,
+                action="CITATION_REVOKE_REFUND",
+                account="bank",
+                amount=self.amount,
+                before_cash=before_cash, before_bank=before_bank,
+                after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                note=self.case_code
+            )
+
+        await itx.response.edit_message(content=f"⚖️ Case `{self.case_code}` revoked & refunded.", view=None)
 
 class CitationActions(discord.ui.View):
-    def __init__(self, cog: "EconomyCog", *, case_code: str, officer_id: int, citizen_id: int, penal_code: str, brief_description: str, amount: float):
+    def __init__(
+        self,
+        cog: "EconomyCog",
+        *,
+        officer_id: int,
+        citizen_id: int,
+        case_code: str,
+        penal_code: str,
+        brief_description: str,
+        amount: float,
+    ):
         super().__init__(timeout=None)
         self.cog = cog
-        self.case_code = case_code
         self.officer_id = int(officer_id)
         self.citizen_id = int(citizen_id)
-        self.penal_code = penal_code
-        self.brief_description = brief_description
+        self.case_code = str(case_code)
+        self.penal_code = str(penal_code)
+        self.brief_description = str(brief_description)
         self.amount = float(amount)
 
     def _is_supervisor(self, member: discord.Member) -> bool:
         return has_role(member, LPD_SUPERVISOR_ROLE_ID)
 
-    def _update_status_embed(self, message: discord.Message, *, new_title: str, new_status: str) -> Optional[discord.Embed]:
-        if not message.embeds:
-            return None
-        emb = message.embeds[0].copy()
-        emb.title = new_title
+    def _updated_embed(self, message: discord.Message, *, new_title: str, new_status: str) -> discord.Embed:
+        old = message.embeds[0] if message.embeds else None
+        emb = discord.Embed(title=new_title, color=DPS_COLOR)
+        emb.set_thumbnail(url=DPS_THUMBNAIL)
 
-        old_fields = list(emb.fields)
-        emb.clear_fields()
-
-        found = False
-        for f in old_fields:
-            if f.name.strip().lower().startswith("status"):
-                emb.add_field(name="Status:", value=new_status, inline=False)
-                found = True
-            else:
+        # keep existing fields except Status -> replace
+        if old:
+            for f in old.fields:
+                if f.name == "Status:":
+                    continue
                 emb.add_field(name=f.name, value=f.value, inline=f.inline)
 
-        if not found:
-            emb.add_field(name="Status:", value=new_status, inline=False)
+        emb.add_field(name="Status:", value=new_status, inline=False)
         return emb
 
     @discord.ui.button(label="Approve Citation", style=discord.ButtonStyle.success)
@@ -637,55 +893,47 @@ class CitationActions(discord.ui.View):
         if not itx.guild or not isinstance(itx.user, discord.Member) or not self._is_supervisor(itx.user):
             return await respond_safely(itx, content="Supervisor permissions required.", ephemeral=True)
 
-        guild = itx.guild
-
-        # Deduct economy & finalize citation
         async with db.lock:
+            # Deduct funds + mark approved
+            u_before = await db.get_user(self.citizen_id)
+            before_cash = float(u_before["cash"])
+            before_bank = float(u_before["bank"])
+
             with db.conn:
                 db.conn.execute("UPDATE users SET bank = bank - ? WHERE uid = ?", (self.amount, str(self.citizen_id)))
-                db.conn.execute("""
-                    UPDATE citations
-                    SET status='APPROVED', decided_ts=?, decided_by=?
-                    WHERE case_code=?
-                """, (now_ts(), str(itx.user.id), self.case_code))
+                db.conn.execute(
+                    "UPDATE citations SET status='APPROVED', decided_ts=?, decided_by=? WHERE case_code=?",
+                    (now_ts(), str(itx.user.id), self.case_code),
+                )
 
-        # Update supervisor message status/title
-        updated = self._update_status_embed(itx.message, new_title="Citation Approved:", new_status="Approved (transaction completed).")
-        if updated:
-            await itx.response.edit_message(embed=updated, view=None)
-        else:
-            await itx.response.edit_message(content=f"✅ Citation Approved by {itx.user.mention}", view=None)
+            u_after = await db.get_user(self.citizen_id)
+            log_money_history(
+                actor_id=itx.user.id,
+                target_id=self.citizen_id,
+                action="CITATION_APPROVED_DEDUCT",
+                account="bank",
+                amount=-self.amount,
+                before_cash=before_cash, before_bank=before_bank,
+                after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                note=self.case_code
+            )
 
-        # Build log embed (approved channel + court)
-        officer_user = guild.get_member(self.officer_id) or await self.cog.bot.fetch_user(self.officer_id)
-        citizen_user = guild.get_member(self.citizen_id) or await self.cog.bot.fetch_user(self.citizen_id)
+        # Update supervisor message (title/status)
+        try:
+            new_emb = self._updated_embed(itx.message, new_title="Citation Approved:", new_status="Approved (transaction completed).")
+            await itx.response.edit_message(embed=new_emb, view=None)
+        except Exception:
+            await respond_safely(itx, content=f"✅ Approved by {itx.user.mention}", ephemeral=True)
 
-        log_emb = discord.Embed(title="DPS | Citation Approved:", color=DPS_COLOR)
-        log_emb.set_thumbnail(url=DPS_THUMBNAIL)
-        log_emb.add_field(name="Case Code:", value=f"`{self.case_code}`", inline=False)
-        log_emb.add_field(name="Officer:", value=f"{officer_user.mention} ({self.officer_id})", inline=False)
-        log_emb.add_field(name="Citizen:", value=f"{citizen_user.mention} ({self.citizen_id})", inline=False)
-        log_emb.add_field(name="Penal Code:", value=self.penal_code, inline=False)
-        log_emb.add_field(name="Fine Amount:", value=money(self.amount), inline=True)
-        log_emb.add_field(name="Status:", value="Approved (transaction completed).", inline=True)
-        self.cog.add_footer(log_emb, guild)
-
-        log_chan = guild.get_channel(CITATION_LOG_CHANNEL)
-        court_chan = guild.get_channel(COURT_CHANNEL)
-        if log_chan:
-            await log_chan.send(embed=log_emb)
-        if court_chan:
-            await court_chan.send(embed=log_emb, view=CourtRevokeView(self.cog, self.case_code, self.citizen_id, self.amount))
-
-        # DM the cited person (mention outside embed)
-        await self.cog.dm_citation_approved(
-            guild=guild,
+        # Outputs
+        await self.cog._post_citation_outputs(
+            guild=itx.guild,
             officer_id=self.officer_id,
             citizen_id=self.citizen_id,
+            case_code=self.case_code,
             penal_code=self.penal_code,
             brief_description=self.brief_description,
             amount=self.amount,
-            case_code=self.case_code
         )
 
     @discord.ui.button(label="Deny Citation", style=discord.ButtonStyle.danger)
@@ -695,17 +943,217 @@ class CitationActions(discord.ui.View):
 
         async with db.lock:
             with db.conn:
-                db.conn.execute("""
-                    UPDATE citations
-                    SET status='DENIED', decided_ts=?, decided_by=?
-                    WHERE case_code=?
-                """, (now_ts(), str(itx.user.id), self.case_code))
+                db.conn.execute(
+                    "UPDATE citations SET status='DENIED', decided_ts=?, decided_by=? WHERE case_code=?",
+                    (now_ts(), str(itx.user.id), self.case_code),
+                )
 
-        updated = self._update_status_embed(itx.message, new_title="Citation Denied:", new_status="Denied (no transaction).")
-        if updated:
-            await itx.response.edit_message(embed=updated, view=None)
+        try:
+            new_emb = self._updated_embed(itx.message, new_title="Citation Denied:", new_status="Denied (no transaction).")
+            await itx.response.edit_message(embed=new_emb, view=None)
+        except Exception:
+            await respond_safely(itx, content=f"❌ Denied by {itx.user.mention}", ephemeral=True)
+
+# ---------------- SHOP / SCRATCH VIEW
+
+class ShopView(discord.ui.View):
+    def __init__(self, cog: "EconomyCog", buyer_id: int, can_buy_today: bool):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.buyer_id = int(buyer_id)
+        if not can_buy_today:
+            for item in self.children:
+                if isinstance(item, discord.ui.Button) and item.custom_id == "buy_scratch":
+                    item.disabled = True  # type: ignore
+
+    @discord.ui.button(label="Buy Scratch Card ($5 cash)", style=discord.ButtonStyle.success, custom_id="buy_scratch")
+    async def buy_scratch(self, itx: discord.Interaction, _: discord.ui.Button):
+        if itx.user.id != self.buyer_id:
+            return await respond_safely(itx, content="This isn’t your shop.", ephemeral=True)
+
+        today = date.today().isoformat()
+        row = db.conn.execute("SELECT last_buy_date FROM scratch_daily WHERE uid=?", (str(itx.user.id),)).fetchone()
+        if row and (row["last_buy_date"] or "") == today:
+            return await respond_safely(itx, content="❌ You already bought a scratch card today.", ephemeral=True)
+
+        u = await db.get_user(itx.user.id)
+        cash = float(u["cash"])
+        if cash < SCRATCH_PRICE:
+            return await respond_safely(itx, content="❌ Not enough cash.", ephemeral=True)
+
+        async with db.lock:
+            u_before = await db.get_user(itx.user.id)
+            before_cash = float(u_before["cash"])
+            before_bank = float(u_before["bank"])
+
+            with db.conn:
+                db.conn.execute("UPDATE users SET cash=cash-? WHERE uid=?", (float(SCRATCH_PRICE), str(itx.user.id)))
+                db.conn.execute("""
+                    INSERT INTO scratch_daily (uid, last_buy_date)
+                    VALUES (?, ?)
+                    ON CONFLICT(uid) DO UPDATE SET last_buy_date=excluded.last_buy_date
+                """, (str(itx.user.id), today))
+                add_inventory_item(itx.user.id, SCRATCH_ITEM_NAME, 1, purchased_ts=now_ts())
+
+            u_after = await db.get_user(itx.user.id)
+            log_money_history(
+                actor_id=itx.user.id,
+                target_id=itx.user.id,
+                action="BUY_SCRATCH",
+                account="cash",
+                amount=-SCRATCH_PRICE,
+                before_cash=before_cash, before_bank=before_bank,
+                after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                note="shop"
+            )
+
+        emb = self.cog.econ_embed(title="Purchase Complete", description=f"You purchased **{SCRATCH_ITEM_NAME}**.\nUse `/scratch` or `?scratch`.")
+        self.cog.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, ephemeral=True)
+
+# ---------------- ADMIN DASHBOARD
+
+class AdminMoneyModal(discord.ui.Modal):
+    def __init__(self, cog: "EconomyCog", action: str):
+        super().__init__(title=f"Economy Admin: {action}")
+        self.cog = cog
+        self.action = action  # ADD / REMOVE / SET
+
+        self.target = discord.ui.TextInput(label="Target user (ID or mention)", placeholder="123... or @user", required=True)
+        self.account = discord.ui.TextInput(label="Account (cash/bank)", placeholder="bank", required=True, default="bank")
+        self.amount = discord.ui.TextInput(label="Amount", placeholder="5000 or 6,835", required=True)
+
+        self.add_item(self.target)
+        self.add_item(self.account)
+        self.add_item(self.amount)
+
+    async def on_submit(self, itx: discord.Interaction):
+        if not itx.guild or not isinstance(itx.user, discord.Member) or not has_role(itx.user, BANK_STAFF_ROLE_ID):
+            return await respond_safely(itx, content="❌ Bank Staff only.", ephemeral=True)
+
+        uid = parse_user_id(str(self.target.value))
+        if not uid:
+            return await respond_safely(itx, content="❌ Invalid user.", ephemeral=True)
+
+        acc = (str(self.account.value).strip().lower() or "bank")
+        if acc not in ("cash", "bank"):
+            return await respond_safely(itx, content="❌ Account must be `cash` or `bank`.", ephemeral=True)
+
+        raw_amt = str(self.amount.value).strip()
+        raw_amt = raw_amt.replace(",", "")
+        try:
+            amt = float(raw_amt)
+        except Exception:
+            return await respond_safely(itx, content="❌ Invalid amount.", ephemeral=True)
+        if amt < 0:
+            return await respond_safely(itx, content="❌ Amount must be >= 0.", ephemeral=True)
+
+        async with db.lock:
+            u_before = await db.get_user(uid)
+            before_cash = float(u_before["cash"])
+            before_bank = float(u_before["bank"])
+
+            with db.conn:
+                if self.action == "ADD":
+                    db.conn.execute(f"UPDATE users SET {acc} = {acc} + ? WHERE uid=?", (amt, str(uid)))
+                elif self.action == "REMOVE":
+                    db.conn.execute(f"UPDATE users SET {acc} = MAX({acc} - ?, 0) WHERE uid=?", (amt, str(uid)))
+                else:  # SET
+                    db.conn.execute(f"UPDATE users SET {acc} = ? WHERE uid=?", (amt, str(uid)))
+
+            u_after = await db.get_user(uid)
+            after_cash = float(u_after["cash"])
+            after_bank = float(u_after["bank"])
+
+            log_money_history(
+                actor_id=itx.user.id,
+                target_id=uid,
+                action=f"ADMIN_{self.action}",
+                account=acc,
+                amount=amt if self.action != "REMOVE" else -amt,
+                before_cash=before_cash, before_bank=before_bank,
+                after_cash=after_cash, after_bank=after_bank,
+                note="dashboard"
+            )
+
+        emb = self.cog.econ_embed(
+            title="Admin Update Complete",
+            description=f"Target: <@{uid}> (`{uid}`)\nAccount: `{acc}`\nAction: `{self.action}`\nNew balances: Bank {money(after_bank)} | Cash {money(after_cash)}"
+        )
+        self.cog.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, ephemeral=True)
+
+class AdminHistoryModal(discord.ui.Modal):
+    def __init__(self, cog: "EconomyCog"):
+        super().__init__(title="Economy Admin: View History")
+        self.cog = cog
+        self.target = discord.ui.TextInput(label="Target user (ID or mention)", placeholder="123... or @user", required=True)
+        self.add_item(self.target)
+
+    async def on_submit(self, itx: discord.Interaction):
+        if not itx.guild or not isinstance(itx.user, discord.Member) or not has_role(itx.user, BANK_STAFF_ROLE_ID):
+            return await respond_safely(itx, content="❌ Bank Staff only.", ephemeral=True)
+
+        uid = parse_user_id(str(self.target.value))
+        if not uid:
+            return await respond_safely(itx, content="❌ Invalid user.", ephemeral=True)
+
+        rows = db.conn.execute("""
+            SELECT ts, actor_id, action, account, amount, before_cash, before_bank, after_cash, after_bank, note
+            FROM money_history
+            WHERE target_id = ?
+            ORDER BY id DESC
+            LIMIT 15
+        """, (str(uid),)).fetchall()
+
+        emb = self.cog.econ_embed(title="Money History", description=f"Target: <@{uid}> (`{uid}`)")
+        if not rows:
+            emb.add_field(name="Logs:", value="No history found.", inline=False)
         else:
-            await itx.response.edit_message(content=f"❌ Citation Denied by {itx.user.mention}", view=None)
+            lines = []
+            for r in rows:
+                lines.append(
+                    f"{ts_discord(int(r['ts']), 'R')} • `{r['action']}` • `{r['account']}` • `{money(float(r['amount']))}`\n"
+                    f"By: <@{r['actor_id']}> • Note: {r['note'] or 'N/A'}\n"
+                    f"Bank {money(float(r['before_bank']))} → {money(float(r['after_bank']))} | "
+                    f"Cash {money(float(r['before_cash']))} → {money(float(r['after_cash']))}"
+                )
+            emb.add_field(name="Recent Entries:", value="\n\n".join(lines)[:4000], inline=False)
+
+        self.cog.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, ephemeral=True)
+
+class AdminDashboardView(discord.ui.View):
+    def __init__(self, cog: "EconomyCog"):
+        super().__init__(timeout=120)
+        self.cog = cog
+
+    def _allowed(self, itx: discord.Interaction) -> bool:
+        return bool(itx.guild and isinstance(itx.user, discord.Member) and has_role(itx.user, BANK_STAFF_ROLE_ID))
+
+    @discord.ui.button(label="Add Money", style=discord.ButtonStyle.success)
+    async def add_money(self, itx: discord.Interaction, _: discord.ui.Button):
+        if not self._allowed(itx):
+            return await respond_safely(itx, content="❌ Bank Staff only.", ephemeral=True)
+        await itx.response.send_modal(AdminMoneyModal(self.cog, "ADD"))
+
+    @discord.ui.button(label="Remove Money", style=discord.ButtonStyle.danger)
+    async def remove_money(self, itx: discord.Interaction, _: discord.ui.Button):
+        if not self._allowed(itx):
+            return await respond_safely(itx, content="❌ Bank Staff only.", ephemeral=True)
+        await itx.response.send_modal(AdminMoneyModal(self.cog, "REMOVE"))
+
+    @discord.ui.button(label="Set Balance", style=discord.ButtonStyle.primary)
+    async def set_money(self, itx: discord.Interaction, _: discord.ui.Button):
+        if not self._allowed(itx):
+            return await respond_safely(itx, content="❌ Bank Staff only.", ephemeral=True)
+        await itx.response.send_modal(AdminMoneyModal(self.cog, "SET"))
+
+    @discord.ui.button(label="View History", style=discord.ButtonStyle.secondary)
+    async def view_history(self, itx: discord.Interaction, _: discord.ui.Button):
+        if not self._allowed(itx):
+            return await respond_safely(itx, content="❌ Bank Staff only.", ephemeral=True)
+        await itx.response.send_modal(AdminHistoryModal(self.cog))
 
 # ============================================================
 # COG
@@ -717,7 +1165,7 @@ class EconomyCog(commands.Cog):
         self.salary_task.start()
         self.cleanup_task.start()
 
-    # ---------------- Embeds ----------------
+    # ---------------- embeds
     def add_footer(self, embed: discord.Embed, guild: discord.Guild):
         icon_url = guild.icon.url if guild.icon else None
         embed.set_footer(text="Lakeview City Whitelisted - Automated Systems", icon_url=icon_url)
@@ -728,56 +1176,34 @@ class EconomyCog(commands.Cog):
         emb.set_thumbnail(url=DEFAULT_THUMBNAIL)
         return emb
 
-    # ---------------- Inventory helpers ----------------
-    def add_inventory_item(self, uid: int, item_name: str, qty: int):
-        with db.conn:
-            db.conn.execute("""
-                INSERT INTO inventory (uid, item_name, qty) VALUES (?, ?, ?)
-                ON CONFLICT(uid, item_name) DO UPDATE SET qty = qty + excluded.qty
-            """, (str(uid), item_name, int(qty)))
-            db.conn.execute("""
-                INSERT INTO inventory_purchases (uid, item_name, qty, purchased_ts)
-                VALUES (?, ?, ?, ?)
-            """, (str(uid), item_name, int(qty), now_ts()))
+    def dps_embed(self, *, title: str, description: str | None = None) -> discord.Embed:
+        emb = discord.Embed(title=title, description=description, color=DPS_COLOR)
+        emb.set_thumbnail(url=DPS_THUMBNAIL)
+        return emb
 
-    def get_inventory(self, uid: int) -> List[sqlite3.Row]:
-        cur = db.conn.execute("SELECT item_name, qty FROM inventory WHERE uid=? AND qty > 0 ORDER BY item_name ASC", (str(uid),))
-        return cur.fetchall()
-
-    def last_purchase_ts(self, uid: int, item_name: str) -> Optional[int]:
-        cur = db.conn.execute("""
-            SELECT purchased_ts FROM inventory_purchases
-            WHERE uid=? AND item_name=?
-            ORDER BY purchased_ts DESC LIMIT 1
-        """, (str(uid), item_name))
-        row = cur.fetchone()
-        return int(row["purchased_ts"]) if row else None
-
-    # ---------------- Pay rate logic ----------------
+    # ---------------- pay logic
     async def get_pay_rate_and_dept(self, main_member: discord.Member) -> Tuple[float, str]:
         uid = main_member.id
         tok = normalize_callsign(first_token(main_member.display_name))
 
-        # DOC: callsign or dispatch role
+        # DOC
         if tok in DOC_CALLSIGNS or has_role(main_member, DISPATCH_ROLE_ID):
             ext = await get_external_member(self.bot, DOC_PAY_GUILD_ID, uid)
             r = highest_rate(ext, DOC_PAY_ROLES)
             return (r if r is not None else BASE_PAY_PER_MINUTE), "DOC"
 
-        # LCFR: has LCFR role in main + callsign matches
+        # LCFR
         if has_role(main_member, LCFR_MEMBER_ROLE_ID) and tok in LCFR_CALLSIGNS:
             ext = await get_external_member(self.bot, LCFR_PAY_GUILD_ID, uid)
             r = highest_rate(ext, LCFR_PAY_ROLES)
             return (r if r is not None else BASE_PAY_PER_MINUTE), "LCFR"
 
-        # DPS: highest role in DPS guild
+        # DPS default
         ext = await get_external_member(self.bot, DPS_PAY_GUILD_ID, uid)
         r = highest_rate(ext, DPS_PAY_ROLES)
         return (r if r is not None else BASE_PAY_PER_MINUTE), "DPS"
 
-    # ---------------- Payslip DM ----------------
     async def dm_payslip(self, guild: discord.Guild, uid: int, amount: float, meta: Optional[str]):
-        # meta format: "start|end|minutes|rate|dept"
         start_ts = end_ts = minutes = 0
         rate = 0.0
         dept = "Shift"
@@ -792,9 +1218,13 @@ class EconomyCog(commands.Cog):
         except Exception:
             pass
 
-        user = guild.get_member(uid) or await self.bot.fetch_user(uid)
-        if not user:
-            return
+        member = guild.get_member(uid)
+        user_obj: discord.abc.Messageable | None = member
+        if user_obj is None:
+            try:
+                user_obj = await self.bot.fetch_user(uid)
+            except Exception:
+                return
 
         emb = self.econ_embed(title=f"{dept} Payslip", description="Your shift has been approved and paid.")
         emb.add_field(name="Shift Start:", value=ts_discord(start_ts, "F") if start_ts else "N/A", inline=False)
@@ -805,533 +1235,12 @@ class EconomyCog(commands.Cog):
         self.add_footer(emb, guild)
 
         try:
-            await user.send(embed=emb)
-        except Exception:
-            pass
-
-    # ---------------- Citation DM ----------------
-    async def dm_citation_approved(
-        self,
-        *,
-        guild: discord.Guild,
-        officer_id: int,
-        citizen_id: int,
-        penal_code: str,
-        brief_description: str,
-        amount: float,
-        case_code: str
-    ):
-        officer_user = guild.get_member(officer_id) or await self.bot.fetch_user(officer_id)
-        citizen_user = guild.get_member(citizen_id) or await self.bot.fetch_user(citizen_id)
-
-        u = await db.get_user(citizen_id)
-        new_bank_balance = float(u["bank"])
-        time_now = now_ts()
-
-        dm_emb = discord.Embed(
-            title="DPS | Officer Issued Citation - Completed!",
-            description=(
-                f"> You were issued an official citation by an officer within the Department of Public Safety on "
-                f"{ts_discord(time_now, 'F')} — this was reviewed & approved by a supervisor.\n\n"
-                f"If you feel as though this citation was invalid or inappropriate, feel free to appeal it within "
-                f"the **Lakeview City Courts**:\n"
-                f"https://discord.gg/7FX6tU5Qzp\n\n"
-                f"Review more information below:"
-            ),
-            color=DPS_COLOR
-        )
-        dm_emb.set_thumbnail(url=DPS_THUMBNAIL)
-
-        dm_emb.add_field(name="Officer:", value=f"{officer_user.mention} ({officer_id})", inline=False)
-        dm_emb.add_field(
-            name="Violation:",
-            value=f"**Penal Code:** {penal_code}\n**Description:** {brief_description}",
-            inline=False
-        )
-        dm_emb.add_field(
-            name="Financial Summary:",
-            value=(
-                f"``Fine Amount:`` {money(amount)} (transaction completed)\n"
-                f"``Remaining Bank Balance:`` {money(new_bank_balance)}\n"
-                f"``Case Code:`` `{case_code}`"
-            ),
-            inline=False
-        )
-
-        self.add_footer(dm_emb, guild)
-
-        try:
-            await citizen_user.send(content=citizen_user.mention, embed=dm_emb)
+            await user_obj.send(embed=emb)  # type: ignore
         except Exception:
             pass
 
     # ============================================================
-    # SLASH COMMANDS
-    # ============================================================
-
-    @app_commands.command(name="balance", description="Check your balance (or someone else's).")
-    async def balance(self, itx: discord.Interaction, user: Optional[discord.Member] = None):
-        target = user or itx.user
-        u = await db.get_user(target.id)
-
-        emb = self.econ_embed(title=f"Account Balances: {target.display_name}")
-        emb.add_field(name="Bank:", value=money(float(u["bank"])), inline=True)
-        emb.add_field(name="Cash:", value=money(float(u["cash"])), inline=True)
-        if itx.guild:
-            self.add_footer(emb, itx.guild)
-
-        await respond_safely(itx, embed=emb, ephemeral=False)
-
-    @app_commands.command(name="deposit", description="Deposit cash into bank (supports 'all').")
-    async def deposit_slash(self, itx: discord.Interaction, amount: str):
-        u = await db.get_user(itx.user.id)
-        cash = float(u["cash"])
-        val = parse_amount_arg(amount, max_value=cash)
-        if val is None or val > cash:
-            return await respond_safely(itx, content="❌ Invalid amount.", ephemeral=True)
-
-        async with db.lock:
-            with db.conn:
-                db.conn.execute("UPDATE users SET cash=cash-?, bank=bank+? WHERE uid=?", (val, val, str(itx.user.id)))
-
-        await respond_safely(itx, content=f"✅ Deposited {money(val)} into your bank.", ephemeral=False)
-
-    @app_commands.command(name="withdraw", description="Withdraw bank into cash (supports 'all').")
-    async def withdraw_slash(self, itx: discord.Interaction, amount: str):
-        u = await db.get_user(itx.user.id)
-        bank = float(u["bank"])
-        val = parse_amount_arg(amount, max_value=bank)
-        if val is None or val > bank:
-            return await respond_safely(itx, content="❌ Invalid amount.", ephemeral=True)
-
-        async with db.lock:
-            with db.conn:
-                db.conn.execute("UPDATE users SET bank=bank-?, cash=cash+? WHERE uid=?", (val, val, str(itx.user.id)))
-
-        await respond_safely(itx, content=f"✅ Withdrew {money(val)} into your wallet.", ephemeral=False)
-
-    @app_commands.command(name="transfer", description="Transfer bank funds (requires Bank Staff approval).")
-    async def transfer_slash(self, itx: discord.Interaction, recipient: discord.Member, amount: float, note: str):
-        u = await db.get_user(itx.user.id)
-        bank = float(u["bank"])
-        if amount <= 0 or bank < amount:
-            return await respond_safely(itx, content="❌ Insufficient bank funds.", ephemeral=True)
-
-        with db.conn:
-            tx_id = db.conn.execute("""
-                INSERT INTO pending_tx (sender_id, receiver_id, amount, tx_type, note)
-                VALUES (?, ?, ?, 'TRANSFER', ?)
-            """, (str(itx.user.id), str(recipient.id), float(amount), note)).lastrowid
-
-        chan = itx.guild.get_channel(TRANSFER_AUTH_CHANNEL) if itx.guild else None
-        if chan:
-            emb = self.econ_embed(title="Bank Transfer Request")
-            emb.add_field(name="From:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
-            emb.add_field(name="To:", value=f"{recipient.mention} ({recipient.id})", inline=False)
-            emb.add_field(name="Amount:", value=money(amount), inline=True)
-            emb.add_field(name="Note:", value=note, inline=False)
-            self.add_footer(emb, itx.guild)
-
-            await chan.send(
-                content=f"<@&{BANK_STAFF_ROLE_ID}>",
-                embed=emb,
-                view=ApprovalButtons(self, tx_id, "TRANSFER", str(itx.user.id), str(recipient.id), amount, note=note)
-            )
-
-        await respond_safely(itx, content=f"✅ Transfer #{tx_id} submitted for approval.", ephemeral=True)
-
-    @app_commands.command(name="leaderboard", description="Top 10 wealthiest.")
-    async def leaderboard(self, itx: discord.Interaction):
-        cur = db.conn.execute("SELECT uid, (cash + bank) AS total FROM users ORDER BY total DESC LIMIT 10")
-        rows = cur.fetchall()
-
-        lines = []
-        for i, r in enumerate(rows, start=1):
-            lines.append(f"**{i}.** <@{r['uid']}> — `{money(float(r['total']))}`")
-
-        emb = self.econ_embed(title="Wealth Leaderboard", description="\n".join(lines) if lines else "No data.")
-        self.add_footer(emb, itx.guild)
-        await respond_safely(itx, embed=emb, ephemeral=False)
-
-    @app_commands.command(name="gamble", description="Gamble cash (50/50).")
-    async def gamble_slash(self, itx: discord.Interaction, amount: float):
-        u = await db.get_user(itx.user.id)
-        cash = float(u["cash"])
-        if amount <= 0 or cash < amount:
-            return await respond_safely(itx, content="❌ Need more cash in wallet.", ephemeral=True)
-
-        win = random.choice([True, False])
-        async with db.lock:
-            with db.conn:
-                if win:
-                    db.conn.execute("UPDATE users SET cash=cash+? WHERE uid=?", (amount, str(itx.user.id)))
-                    await respond_safely(itx, content=f"🎲 WIN! You won **{money(amount)}**.", ephemeral=False)
-                else:
-                    db.conn.execute("UPDATE users SET cash=cash-? WHERE uid=?", (amount, str(itx.user.id)))
-                    await respond_safely(itx, content=f"🎲 LOSS. You lost **{money(amount)}**.", ephemeral=False)
-
-    @app_commands.command(name="inventory", description="View your inventory.")
-    async def inventory_slash(self, itx: discord.Interaction):
-        items = self.get_inventory(itx.user.id)
-        if not items:
-            return await respond_safely(itx, content="Your inventory is currently empty.", ephemeral=True)
-
-        lines = []
-        for row in items:
-            item = row["item_name"]
-            qty = int(row["qty"])
-            ts = self.last_purchase_ts(itx.user.id, item)
-            when = ts_discord(ts, "R") if ts else "N/A"
-            lines.append(f"• **{item}** x{qty} — last purchase: {when}")
-
-        emb = self.econ_embed(title=f"Inventory: {itx.user.display_name}", description="\n".join(lines))
-        self.add_footer(emb, itx.guild)
-        await respond_safely(itx, embed=emb, ephemeral=True)
-
-    @app_commands.command(name="shop", description="View the shop.")
-    async def shop_slash(self, itx: discord.Interaction):
-        emb = self.econ_embed(
-            title="Server Shop",
-            description=(
-                f"**{SCRATCH_ITEM_NAME}** — {money(SCRATCH_PRICE)} cash\n"
-                f"• Buy: `?scratchbuy` (1 per day)\n"
-                f"• Use: `?scratch`"
-            )
-        )
-        self.add_footer(emb, itx.guild)
-        await respond_safely(itx, embed=emb, ephemeral=True)
-
-    @app_commands.command(name="loan_request", description="Request a loan (creates a bank staff ticket thread).")
-    async def loan_request(self, itx: discord.Interaction, amount: float, reason: str):
-        if amount <= 0:
-            return await respond_safely(itx, content="❌ Invalid amount.", ephemeral=True)
-        if not itx.guild:
-            return await respond_safely(itx, content="❌ Guild required.", ephemeral=True)
-
-        created = now_ts()
-        with db.conn:
-            loan_id = db.conn.execute("""
-                INSERT INTO loans (borrower_id, amount, reason, created_ts)
-                VALUES (?, ?, ?, ?)
-            """, (str(itx.user.id), float(amount), reason, created)).lastrowid
-
-        desk = itx.guild.get_channel(LOAN_DESK_CHANNEL_ID)
-        if not desk:
-            return await respond_safely(itx, content="❌ Loan desk channel not found.", ephemeral=True)
-
-        emb = self.econ_embed(title="Loan Request Ticket")
-        emb.add_field(name="Loan ID:", value=f"`{loan_id}`", inline=False)
-        emb.add_field(name="Borrower:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
-        emb.add_field(name="Amount:", value=money(amount), inline=True)
-        emb.add_field(name="Reason:", value=reason, inline=False)
-        emb.add_field(name="Requested:", value=ts_discord(created, "F"), inline=False)
-        self.add_footer(emb, itx.guild)
-
-        msg = await desk.send(content=f"<@&{BANK_STAFF_ROLE_ID}>", embed=emb)
-        try:
-            thread = await msg.create_thread(name=f"Loan-{loan_id} • {itx.user.display_name}", auto_archive_duration=1440)
-        except Exception:
-            thread = None
-
-        with db.conn:
-            tx_id = db.conn.execute("""
-                INSERT INTO pending_tx (sender_id, receiver_id, amount, tx_type, note, meta)
-                VALUES ('BANK', ?, ?, 'LOAN', ?, ?)
-            """, (str(itx.user.id), float(amount), reason, str(loan_id))).lastrowid
-
-        view = ApprovalButtons(self, tx_id, "LOAN", "BANK", str(itx.user.id), amount, note=reason, meta=str(loan_id))
-
-        if thread:
-            await thread.send(embed=emb, view=view)
-        else:
-            await desk.send(embed=emb, view=view)
-
-        await respond_safely(itx, content="✅ Loan request submitted to Bank Staff.", ephemeral=True)
-
-    # ---------------- Citations ----------------
-    @app_commands.command(name="cite", description="LPD only: issue a citation (supervisor review).")
-    @app_commands.autocomplete(penal_code=penal_autocomplete)
-    async def cite_slash(
-        self,
-        itx: discord.Interaction,
-        citizen: discord.Member,
-        penal_code: str,
-        amount: float,
-        brief_description: str
-    ):
-        if not itx.guild or not isinstance(itx.user, discord.Member) or not has_role(itx.user, LPD_ROLE_ID):
-            return await respond_safely(itx, content="LPD Only.", ephemeral=True)
-
-        if amount <= 0:
-            return await respond_safely(itx, content="❌ Invalid fine amount.", ephemeral=True)
-
-        case_code = f"LV-{random.randint(1000, 9999)}"
-        created = now_ts()
-
-        with db.conn:
-            db.conn.execute("""
-                INSERT INTO citations (case_code, guild_id, officer_id, citizen_id, penal_code, brief_description, amount, status, created_ts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)
-            """, (case_code, str(itx.guild_id), str(itx.user.id), str(citizen.id), penal_code, brief_description, float(amount), created))
-
-        # Confirmation embed to officer
-        emb = discord.Embed(title="Confirm Citation:", color=DPS_COLOR)
-        emb.set_thumbnail(url=DPS_THUMBNAIL)
-        emb.add_field(name="Case Code:", value=f"`{case_code}`", inline=False)
-        emb.add_field(name="Officer:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
-        emb.add_field(name="Citizen:", value=f"{citizen.mention} ({citizen.id})", inline=False)
-        emb.add_field(name="Penal Code:", value=penal_code, inline=False)
-        emb.add_field(name="Brief Description:", value=brief_description, inline=False)
-        emb.add_field(name="Fine Amount:", value=money(amount), inline=True)
-        emb.add_field(name="Status:", value="Pending officer confirmation.", inline=True)
-        self.add_footer(emb, itx.guild)
-
-        cog = self
-
-        class ConfirmCiteView(discord.ui.View):
-            def __init__(self):
-                super().__init__(timeout=45)
-
-            @discord.ui.button(label="Submit for Supervisor Review", style=discord.ButtonStyle.primary)
-            async def submit(self, c_itx: discord.Interaction, _: discord.ui.Button):
-                if c_itx.user.id != itx.user.id:
-                    return await respond_safely(c_itx, content="This isn’t your citation.", ephemeral=True)
-
-                chan = c_itx.guild.get_channel(CITATION_SUBMIT_CHANNEL)
-                if not chan:
-                    return await respond_safely(c_itx, content="❌ Submit channel missing.", ephemeral=True)
-
-                # Update DB status to PENDING
-                with db.conn:
-                    db.conn.execute("UPDATE citations SET status='PENDING' WHERE case_code=?", (case_code,))
-
-                # Supervisor embed MUST only include officer/citizen/fine/penal code + status
-                sup = discord.Embed(title="Citation Pending Review:", color=DPS_COLOR)
-                sup.set_thumbnail(url=DPS_THUMBNAIL)
-                sup.add_field(name="Case Code:", value=f"`{case_code}`", inline=False)
-                sup.add_field(name="Officer:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
-                sup.add_field(name="Citizen:", value=f"{citizen.mention} ({citizen.id})", inline=False)
-                sup.add_field(name="Fine Amount:", value=money(amount), inline=True)
-                sup.add_field(name="Penal Code:", value=penal_code, inline=False)
-                sup.add_field(name="Status:", value="Pending supervisor decision.", inline=False)
-                cog.add_footer(sup, c_itx.guild)
-
-                # Ping supervisor role AND ping the OFFICER who issued it
-                await chan.send(
-                    content=f"<@&{LPD_SUPERVISOR_ROLE_ID}> {itx.user.mention}",
-                    embed=sup,
-                    view=CitationActions(
-                        cog,
-                        case_code=case_code,
-                        officer_id=itx.user.id,
-                        citizen_id=citizen.id,
-                        penal_code=penal_code,
-                        brief_description=brief_description,
-                        amount=amount
-                    )
-                )
-
-                # Update officer embed status
-                new_emb = emb.copy()
-                # rebuild fields
-                new_emb.clear_fields()
-                new_emb.add_field(name="Case Code:", value=f"`{case_code}`", inline=False)
-                new_emb.add_field(name="Officer:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
-                new_emb.add_field(name="Citizen:", value=f"{citizen.mention} ({citizen.id})", inline=False)
-                new_emb.add_field(name="Penal Code:", value=penal_code, inline=False)
-                new_emb.add_field(name="Brief Description:", value=brief_description, inline=False)
-                new_emb.add_field(name="Fine Amount:", value=money(amount), inline=True)
-                new_emb.add_field(name="Status:", value="Submitted to supervisors.", inline=True)
-                cog.add_footer(new_emb, c_itx.guild)
-
-                await c_itx.response.edit_message(embed=new_emb, view=None)
-
-            @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
-            async def cancel(self, c_itx: discord.Interaction, _: discord.ui.Button):
-                if c_itx.user.id != itx.user.id:
-                    return await respond_safely(c_itx, content="This isn’t your menu.", ephemeral=True)
-                with db.conn:
-                    db.conn.execute("UPDATE citations SET status='CANCELLED' WHERE case_code=?", (case_code,))
-                await c_itx.response.edit_message(content="Cancelled.", embed=None, view=None)
-
-        await respond_safely(itx, embed=emb, view=ConfirmCiteView(), ephemeral=True)
-
-    @app_commands.command(name="citation_history", description="Officers: view a citizen's approved citations.")
-    async def citation_history(self, itx: discord.Interaction, citizen: discord.Member):
-        if not itx.guild or not isinstance(itx.user, discord.Member) or not has_role(itx.user, LPD_ROLE_ID):
-            return await respond_safely(itx, content="LPD Only.", ephemeral=True)
-
-        cur = db.conn.execute("""
-            SELECT case_code, penal_code, brief_description, amount, decided_ts, officer_id
-            FROM citations
-            WHERE citizen_id=? AND status='APPROVED'
-            ORDER BY decided_ts DESC
-            LIMIT 15
-        """, (str(citizen.id),))
-        rows = cur.fetchall()
-
-        emb = discord.Embed(title=f"Citation History: {citizen.display_name}", color=DPS_COLOR)
-        emb.set_thumbnail(url=DPS_THUMBNAIL)
-
-        if not rows:
-            emb.description = "No approved citations found."
-            self.add_footer(emb, itx.guild)
-            return await respond_safely(itx, embed=emb, ephemeral=True)
-
-        lines = []
-        for r in rows:
-            when = ts_discord(int(r["decided_ts"]), "F") if r["decided_ts"] else "N/A"
-            lines.append(
-                f"**`{r['case_code']}`** • {money(float(r['amount']))} • {when}\n"
-                f"**Penal:** {r['penal_code']}\n"
-                f"**Desc:** {r['brief_description']}\n"
-                f"**Officer:** <@{r['officer_id']}>\n"
-            )
-
-        emb.description = "\n".join(lines[:10])
-        self.add_footer(emb, itx.guild)
-        await respond_safely(itx, embed=emb, ephemeral=True)
-
-    # ============================================================
-    # PREFIX COMMANDS (ONLY in ECONOMY_PREFIX_CHANNEL_ID)
-    # ============================================================
-
-    async def ensure_prefix_channel(self, ctx: commands.Context) -> bool:
-        if not ctx.guild or not ctx.channel:
-            return False
-        if ctx.channel.id != ECONOMY_PREFIX_CHANNEL_ID:
-            try:
-                await ctx.reply(f"❌ Economy prefix commands only work in <#{ECONOMY_PREFIX_CHANNEL_ID}>.", delete_after=8)
-            except Exception:
-                pass
-            return False
-        return True
-
-    @commands.command(name="balance")
-    async def p_balance(self, ctx: commands.Context, user: Optional[discord.Member] = None):
-        if not await self.ensure_prefix_channel(ctx):
-            return
-        target = user or ctx.author
-        u = await db.get_user(target.id)
-        emb = self.econ_embed(title=f"Account Balances: {target.display_name}")
-        emb.add_field(name="Bank:", value=money(float(u["bank"])), inline=True)
-        emb.add_field(name="Cash:", value=money(float(u["cash"])), inline=True)
-        self.add_footer(emb, ctx.guild)
-        await ctx.send(embed=emb)
-
-    @commands.command(name="deposit")
-    async def p_deposit(self, ctx: commands.Context, amount: str):
-        if not await self.ensure_prefix_channel(ctx):
-            return
-        u = await db.get_user(ctx.author.id)
-        cash = float(u["cash"])
-        val = parse_amount_arg(amount, max_value=cash)
-        if val is None or val > cash:
-            return await ctx.send("❌ Invalid amount. Use `?deposit all` or `?deposit 6,835`.")
-
-        async with db.lock:
-            with db.conn:
-                db.conn.execute("UPDATE users SET cash=cash-?, bank=bank+? WHERE uid=?", (val, val, str(ctx.author.id)))
-
-        await ctx.send(f"✅ Deposited {money(val)}.")
-
-    @commands.command(name="withdraw")
-    async def p_withdraw(self, ctx: commands.Context, amount: str):
-        if not await self.ensure_prefix_channel(ctx):
-            return
-        u = await db.get_user(ctx.author.id)
-        bank = float(u["bank"])
-        val = parse_amount_arg(amount, max_value=bank)
-        if val is None or val > bank:
-            return await ctx.send("❌ Invalid amount. Use `?withdraw all` or `?withdraw 6,835`.")
-
-        async with db.lock:
-            with db.conn:
-                db.conn.execute("UPDATE users SET bank=bank-?, cash=cash+? WHERE uid=?", (val, val, str(ctx.author.id)))
-
-        await ctx.send(f"✅ Withdrew {money(val)}.")
-
-    @commands.command(name="gamble")
-    async def p_gamble(self, ctx: commands.Context, amount: str):
-        if not await self.ensure_prefix_channel(ctx):
-            return
-        u = await db.get_user(ctx.author.id)
-        cash = float(u["cash"])
-        val = parse_amount_arg(amount, max_value=cash)
-        if val is None or val > cash:
-            return await ctx.send("❌ Invalid amount. Use `?gamble 500` or `?gamble 6,835`.")
-
-        win = random.choice([True, False])
-        async with db.lock:
-            with db.conn:
-                if win:
-                    db.conn.execute("UPDATE users SET cash=cash+? WHERE uid=?", (val, str(ctx.author.id)))
-                    await ctx.send(f"🎲 WIN! You won **{money(val)}**.")
-                else:
-                    db.conn.execute("UPDATE users SET cash=cash-? WHERE uid=?", (val, str(ctx.author.id)))
-                    await ctx.send(f"🎲 LOSS. You lost **{money(val)}**.")
-
-    @commands.command(name="scratchbuy")
-    async def p_scratchbuy(self, ctx: commands.Context):
-        if not await self.ensure_prefix_channel(ctx):
-            return
-
-        u = await db.get_user(ctx.author.id)
-        cash = float(u["cash"])
-        if cash < SCRATCH_PRICE:
-            return await ctx.send(f"❌ You need {money(SCRATCH_PRICE)} cash to buy a scratch card.")
-
-        today = datetime.now(timezone.utc).date().isoformat()
-        row = db.conn.execute("SELECT last_buy_date FROM scratch_daily WHERE uid=?", (str(ctx.author.id),)).fetchone()
-        if row and row["last_buy_date"] == today:
-            return await ctx.send("❌ You already bought your daily scratch card today.")
-
-        async with db.lock:
-            with db.conn:
-                db.conn.execute("UPDATE users SET cash=cash-? WHERE uid=?", (SCRATCH_PRICE, str(ctx.author.id)))
-                self.add_inventory_item(ctx.author.id, SCRATCH_ITEM_NAME, 1)
-                db.conn.execute("INSERT OR REPLACE INTO scratch_daily (uid, last_buy_date) VALUES (?, ?)", (str(ctx.author.id), today))
-
-        await ctx.send(f"✅ Purchased **{SCRATCH_ITEM_NAME}** for {money(SCRATCH_PRICE)}. Use `?scratch`!")
-
-    @commands.command(name="scratch")
-    async def p_scratch(self, ctx: commands.Context):
-        if not await self.ensure_prefix_channel(ctx):
-            return
-
-        row = db.conn.execute("SELECT qty FROM inventory WHERE uid=? AND item_name=?", (str(ctx.author.id), SCRATCH_ITEM_NAME)).fetchone()
-        qty = int(row["qty"]) if row else 0
-        if qty <= 0:
-            return await ctx.send("❌ You don’t have a scratch card. Buy one with `?scratchbuy` (1/day).")
-
-        roll = random.random()
-        if roll < 0.60:
-            prize = 0
-        elif roll < 0.90:
-            prize = random.choice([50, 75, 100, 150, 200])
-        elif roll < 0.985:
-            prize = random.choice([500, 750, 1000, 1500, 2000])
-        else:
-            prize = random.choice([5000, 7500, 10000])
-
-        symbols = ["🍒", "🍋", "⭐", "💎", "🍀", "7️⃣"]
-        board = [random.choice(symbols) for _ in range(9)]
-        grid = "\n".join([" ".join(board[i:i+3]) for i in range(0, 9, 3)])
-
-        async with db.lock:
-            with db.conn:
-                db.conn.execute("UPDATE inventory SET qty = qty - 1 WHERE uid=? AND item_name=?",
-                                (str(ctx.author.id), SCRATCH_ITEM_NAME))
-                if prize > 0:
-                    db.conn.execute("UPDATE users SET cash=cash+? WHERE uid=?", (float(prize), str(ctx.author.id)))
-
-        if prize > 0:
-            await ctx.send(f"🧾 **Scratch Result**\n```{grid}```\n🎉 You won **{money(prize)}** cash!")
-        else:
-            await ctx.send(f"🧾 **Scratch Result**\n```{grid}```\n😬 No win this time.")
-
-    # ============================================================
-    # SHIFT SYSTEM
+    # SHIFTS + AFK DRAG
     # ============================================================
 
     @tasks.loop(minutes=1)
@@ -1341,6 +1250,7 @@ class EconomyCog(commands.Cog):
             return
 
         now = now_ts()
+        afk_chan = guild.get_channel(AFK_CHANNEL_ID)
 
         async with db.lock:
             for m in guild.members:
@@ -1349,14 +1259,43 @@ class EconomyCog(commands.Cog):
                 if m.voice.channel.category.id != SALARY_VC_CATEGORY_ID:
                     continue
 
-                inactive = bool(m.voice.self_deaf or m.voice.self_mute or m.voice.channel.id == AFK_CHANNEL_ID)
+                inactive = bool(
+                    m.voice.self_deaf
+                    or m.voice.self_mute
+                    or (m.voice.channel.id == AFK_CHANNEL_ID)
+                )
+
+                row = db.conn.execute("SELECT * FROM active_shifts WHERE uid=?", (str(m.id),)).fetchone()
+
                 if inactive:
+                    if row:
+                        with db.conn:
+                            db.conn.execute(
+                                "UPDATE active_shifts SET afk_timer = afk_timer + 1, last_seen_ts = ? WHERE uid=?",
+                                (now, str(m.id)),
+                            )
+                        new_row = db.conn.execute("SELECT afk_timer FROM active_shifts WHERE uid=?", (str(m.id),)).fetchone()
+                        afk_timer = int(new_row["afk_timer"]) if new_row else 0
+                    else:
+                        with db.conn:
+                            db.conn.execute("""
+                                INSERT INTO active_shifts (uid, minutes, gross, start_ts, last_seen_ts, afk_timer)
+                                VALUES (?, 0, 0, ?, ?, 1)
+                            """, (str(m.id), now, now))
+                        afk_timer = 1
+
+                    if afk_timer >= AFK_LIMIT_MINUTES:
+                        try:
+                            if afk_chan and m.voice.channel.id != AFK_CHANNEL_ID:
+                                await m.move_to(afk_chan, reason="AFK (2 minutes inactive)")
+                        except Exception:
+                            pass
                     continue
 
-                rate, dept = await self.get_pay_rate_and_dept(m)
+                # active
+                rate, _dept = await self.get_pay_rate_and_dept(m)
 
-                existing = db.conn.execute("SELECT uid FROM active_shifts WHERE uid=?", (str(m.id),)).fetchone()
-                if not existing:
+                if not row:
                     with db.conn:
                         db.conn.execute("""
                             INSERT INTO active_shifts (uid, minutes, gross, start_ts, last_seen_ts, afk_timer)
@@ -1368,7 +1307,8 @@ class EconomyCog(commands.Cog):
                             UPDATE active_shifts
                             SET minutes = minutes + 1,
                                 gross = gross + ?,
-                                last_seen_ts = ?
+                                last_seen_ts = ?,
+                                afk_timer = 0
                             WHERE uid = ?
                         """, (float(rate), now, str(m.id)))
 
@@ -1379,7 +1319,7 @@ class EconomyCog(commands.Cog):
             return
 
         now = now_ts()
-        cutoff = now - 180
+        cutoff = now - 180  # 3 minutes no updates => finalize shift for approval
 
         async with db.lock:
             rows = db.conn.execute("SELECT * FROM active_shifts").fetchall()
@@ -1391,7 +1331,10 @@ class EconomyCog(commands.Cog):
                 uid = int(row["uid"])
                 minutes = int(row["minutes"])
                 gross = float(row["gross"])
+
                 start_ts = int(row["start_ts"] or 0)
+                if start_ts <= 0:
+                    start_ts = now - (minutes * 60)
                 end_ts = now
 
                 member = guild.get_member(uid)
@@ -1428,7 +1371,7 @@ class EconomyCog(commands.Cog):
                 if chan:
                     emb = self.econ_embed(title=f"{dept} Shift Completed")
                     emb.add_field(name="Employee:", value=f"{member.mention} ({member.id})", inline=False)
-                    emb.add_field(name="Shift Start:", value=ts_discord(start_ts, "F") if start_ts else "N/A", inline=False)
+                    emb.add_field(name="Shift Start:", value=ts_discord(start_ts, "F"), inline=False)
                     emb.add_field(name="Shift End:", value=ts_discord(end_ts, "F"), inline=False)
                     emb.add_field(name="Minutes:", value=str(minutes), inline=True)
                     emb.add_field(name="Rate (per minute):", value=money(rate), inline=True)
@@ -1438,26 +1381,684 @@ class EconomyCog(commands.Cog):
                     await chan.send(
                         content=f"<@&{ping_role}>",
                         embed=emb,
-                        view=ApprovalButtons(self, tx_id, tx_type, "GOV", str(uid), gross, meta=meta)
+                        view=ApprovalButtons(self, tx_id, tx_type, "GOV", str(uid), gross, meta=meta),
                     )
 
     # ============================================================
-    # ADMIN MONEY
+    # CITATIONS OUTPUTS
     # ============================================================
 
-    @app_commands.command(name="addmoney", description="Admin: add money to bank.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def addmoney(self, itx: discord.Interaction, target: discord.Member, amount: float):
-        with db.conn:
-            db.conn.execute("UPDATE users SET bank=bank+? WHERE uid=?", (float(amount), str(target.id)))
-        await respond_safely(itx, content=f"✅ Added {money(amount)} to {target.mention}.", ephemeral=True)
+    async def _post_citation_outputs(
+        self,
+        *,
+        guild: discord.Guild,
+        officer_id: int,
+        citizen_id: int,
+        case_code: str,
+        penal_code: str,
+        brief_description: str,
+        amount: float,
+    ):
+        log_chan = guild.get_channel(CITATION_LOG_CHANNEL)
+        court_chan = guild.get_channel(COURT_CHANNEL)
 
-    @app_commands.command(name="removemoney", description="Admin: remove money from bank.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def removemoney(self, itx: discord.Interaction, target: discord.Member, amount: float):
+        officer_user = guild.get_member(officer_id) or await self.bot.fetch_user(officer_id)
+        citizen_user = guild.get_member(citizen_id) or await self.bot.fetch_user(citizen_id)
+
+        u = await db.get_user(citizen_id)
+        new_bank_balance = float(u["bank"])
+        time_now = now_ts()
+
+        processed = self.dps_embed(
+            title="Citation Processed:",
+            description="> This citation was approved and the transaction has been completed."
+        )
+        processed.add_field(name="Officer:", value=f"{getattr(officer_user,'mention','<@'+str(officer_id)+'>')} ({officer_id})", inline=False)
+        processed.add_field(name="Citizen:", value=f"{getattr(citizen_user,'mention','<@'+str(citizen_id)+'>')} ({citizen_id})", inline=False)
+        processed.add_field(name="Case Code:", value=f"`{case_code}`", inline=True)
+        processed.add_field(name="Fine Amount:", value=money(amount), inline=True)
+        processed.add_field(name="Penal Code:", value=penal_code, inline=False)
+        self.add_footer(processed, guild)
+
+        if log_chan:
+            await log_chan.send(embed=processed)
+
+        if court_chan:
+            await court_chan.send(embed=processed, view=RevokeCitationView(self, case_code, citizen_id, amount))
+
+        dm_emb = discord.Embed(
+            title="DPS | Officer Issued Citation - Completed!",
+            description=(
+                f"> You were issued an official citation by an officer within the Department of Public Safety on "
+                f"{ts_discord(time_now,'F')} — this was reviewed & approved by a supervisor. "
+                f"If you feel as though this citation was invalid or inappropriate feel free to appeal it within the "
+                f"[Lakeview City Courts](https://discord.gg/7FX6tU5Qzp). Otherwise, the citation stays on your record.\n\n"
+                f"Review more information below:"
+            ),
+            color=DPS_COLOR
+        )
+        dm_emb.set_thumbnail(url=DPS_THUMBNAIL)
+        dm_emb.add_field(name="Officer:", value=f"{getattr(officer_user,'mention','<@'+str(officer_id)+'>')} ({officer_id})", inline=False)
+        dm_emb.add_field(name="Violation:", value=(f"**Penal Code:** {penal_code}\n**Description:** {brief_description}"), inline=False)
+        dm_emb.add_field(
+            name="Financial Summary:",
+            value=(
+                f"``Fine Amount:`` {money(amount)} (transaction completed)\n"
+                f"``Remaining Bank Balance:`` {money(new_bank_balance)}\n"
+                f"``Case Code:`` `{case_code}`\n"
+                f"``Time:`` {ts_discord(time_now,'F')}"
+            ),
+            inline=False
+        )
+        self.add_footer(dm_emb, guild)
+
+        try:
+            await citizen_user.send(content=f"{getattr(citizen_user,'mention','')}", embed=dm_emb)  # type: ignore
+        except Exception:
+            pass
+
+    # ============================================================
+    # SLASH COMMANDS
+    # ============================================================
+
+    @app_commands.command(name="balance", description="Check bank/cash (optional: view another user)")
+    async def balance_slash(self, itx: discord.Interaction, user: Optional[discord.Member] = None):
+        target = user or itx.user
+        u = await db.get_user(target.id)
+
+        emb = self.econ_embed(title=f"Account Balances: {target.display_name}")
+        emb.add_field(name="Bank:", value=money(float(u["bank"])), inline=True)
+        emb.add_field(name="Cash:", value=money(float(u["cash"])), inline=True)
+        self.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, ephemeral=False)
+
+    @app_commands.command(name="leaderboard", description="Top 10 wealthiest citizens")
+    async def leaderboard(self, itx: discord.Interaction):
+        rows = db.conn.execute("""
+            SELECT uid, (cash + bank) AS total
+            FROM users
+            ORDER BY total DESC
+            LIMIT 10
+        """).fetchall()
+
+        lines = []
+        for i, r in enumerate(rows, start=1):
+            lines.append(f"**{i}.** <@{r['uid']}> — `{money(float(r['total']))}`")
+
+        emb = self.econ_embed(title="Top 10 Wealthiest Citizens", description="\n".join(lines) if lines else "No data yet.")
+        self.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, ephemeral=False)
+
+    @app_commands.command(name="gamble", description="Coinflip gamble from your CASH (very low win chance)")
+    async def gamble_slash(self, itx: discord.Interaction, amount: float):
+        # cooldown stored in DB (works across restarts)
+        row = db.conn.execute("SELECT last_ts FROM gamble_cooldown WHERE uid=?", (str(itx.user.id),)).fetchone()
+        last_ts = int(row["last_ts"]) if row else 0
+        now = now_ts()
+        if (now - last_ts) < GAMBLE_COOLDOWN_SECONDS:
+            remain = GAMBLE_COOLDOWN_SECONDS - (now - last_ts)
+            return await respond_safely(itx, content=f"⏳ Slow down. Try again {ts_discord(now + remain, 'R')}.", ephemeral=True)
+
+        u = await db.get_user(itx.user.id)
+        cash = float(u["cash"])
+        if amount <= 0:
+            return await respond_safely(itx, content="❌ Amount must be > 0.", ephemeral=True)
+        if cash < amount:
+            return await respond_safely(itx, content="❌ Not enough cash.", ephemeral=True)
+
+        win = (random.random() < GAMBLE_WIN_CHANCE)
+
+        async with db.lock:
+            u_before = await db.get_user(itx.user.id)
+            before_cash = float(u_before["cash"])
+            before_bank = float(u_before["bank"])
+
+            with db.conn:
+                db.conn.execute("""
+                    INSERT INTO gamble_cooldown (uid, last_ts)
+                    VALUES (?, ?)
+                    ON CONFLICT(uid) DO UPDATE SET last_ts=excluded.last_ts
+                """, (str(itx.user.id), now))
+
+                if win:
+                    db.conn.execute("UPDATE users SET cash = cash + ? WHERE uid=?", (float(amount), str(itx.user.id)))
+                    msg = f"🎲 **WIN!** You gained {money(amount)}."
+                    delta = float(amount)
+                else:
+                    db.conn.execute("UPDATE users SET cash = cash - ? WHERE uid=?", (float(amount), str(itx.user.id)))
+                    msg = f"🎲 **LOSS.** You lost {money(amount)}."
+                    delta = -float(amount)
+
+            u_after = await db.get_user(itx.user.id)
+            log_money_history(
+                actor_id=itx.user.id,
+                target_id=itx.user.id,
+                action="GAMBLE",
+                account="cash",
+                amount=delta,
+                before_cash=before_cash, before_bank=before_bank,
+                after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                note="slash"
+            )
+
+        await respond_safely(itx, content=msg, ephemeral=False)
+
+    @app_commands.command(name="transfer", description="Transfer bank funds (Bank Staff must approve)")
+    async def transfer_slash(self, itx: discord.Interaction, recipient: discord.Member, amount: float, note: str):
+        u = await db.get_user(itx.user.id)
+        if amount <= 0:
+            return await respond_safely(itx, content="❌ Amount must be > 0.", ephemeral=True)
+        if float(u["bank"]) < amount:
+            return await respond_safely(itx, content="❌ Insufficient bank funds.", ephemeral=True)
+
         with db.conn:
-            db.conn.execute("UPDATE users SET bank=bank-? WHERE uid=?", (float(amount), str(target.id)))
-        await respond_safely(itx, content=f"✅ Removed {money(amount)} from {target.mention}.", ephemeral=True)
+            tx_id = db.conn.execute("""
+                INSERT INTO pending_tx (sender_id, receiver_id, amount, tx_type, note)
+                VALUES (?, ?, ?, 'TRANSFER', ?)
+            """, (str(itx.user.id), str(recipient.id), float(amount), str(note))).lastrowid
+
+        chan = itx.guild.get_channel(TRANSFER_AUTH_CHANNEL)
+        if chan:
+            emb = self.econ_embed(title="Bank Transfer Request")
+            emb.add_field(name="From:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
+            emb.add_field(name="To:", value=f"{recipient.mention} ({recipient.id})", inline=False)
+            emb.add_field(name="Amount:", value=money(amount), inline=False)
+            emb.add_field(name="Note:", value=note, inline=False)
+            self.add_footer(emb, itx.guild)
+
+            await chan.send(
+                content=f"<@&{BANK_STAFF_ROLE_ID}>",
+                embed=emb,
+                view=ApprovalButtons(self, tx_id, "TRANSFER", str(itx.user.id), str(recipient.id), float(amount), note=note),
+            )
+
+        await respond_safely(itx, content=f"✅ Transfer #{tx_id} submitted for Bank Staff review.", ephemeral=True)
+
+    @app_commands.command(name="shop", description="Open the shop")
+    async def shop_slash(self, itx: discord.Interaction):
+        today = date.today().isoformat()
+        row = db.conn.execute("SELECT last_buy_date FROM scratch_daily WHERE uid=?", (str(itx.user.id),)).fetchone()
+        can_buy = not (row and (row["last_buy_date"] or "") == today)
+
+        emb = self.econ_embed(
+            title="Shop",
+            description=(
+                f"**{SCRATCH_ITEM_NAME}** — {money(SCRATCH_PRICE)} cash\n"
+                f"> Buy 1 per day.\n"
+                f"> Use `/scratch` or `?scratch` to scratch it."
+            )
+        )
+        self.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, view=ShopView(self, itx.user.id, can_buy_today=can_buy), ephemeral=True)
+
+    @app_commands.command(name="scratch", description="Use a scratch card (very low win chance)")
+    async def scratch_slash(self, itx: discord.Interaction):
+        if get_inventory_qty(itx.user.id, SCRATCH_ITEM_NAME) <= 0:
+            return await respond_safely(itx, content="❌ You don't have a scratch card. Use `/shop` to buy one.", ephemeral=True)
+
+        async with db.lock:
+            ok = remove_inventory_item(itx.user.id, SCRATCH_ITEM_NAME, 1)
+            if not ok:
+                return await respond_safely(itx, content="❌ You don't have a scratch card.", ephemeral=True)
+
+        # VERY LOW win chance
+        roll = random.random()
+        if roll < 0.97:
+            prize = 0.0
+            msg = "🧾 **Scratch Result:** Unlucky… no win this time."
+        elif roll < 0.995:
+            prize = 10.0
+            msg = f"🧾 **Scratch Result:** You won **{money(prize)}**!"
+        elif roll < 0.999:
+            prize = 50.0
+            msg = f"🧾 **Scratch Result:** Nice win! You won **{money(prize)}**!"
+        else:
+            prize = 500.0
+            msg = f"🧾 **Scratch Result:** 🏆 JACKPOT! You won **{money(prize)}**!"
+
+        if prize > 0:
+            async with db.lock:
+                u_before = await db.get_user(itx.user.id)
+                before_cash = float(u_before["cash"])
+                before_bank = float(u_before["bank"])
+
+                with db.conn:
+                    db.conn.execute("UPDATE users SET cash=cash+? WHERE uid=?", (float(prize), str(itx.user.id)))
+
+                u_after = await db.get_user(itx.user.id)
+                log_money_history(
+                    actor_id=itx.user.id,
+                    target_id=itx.user.id,
+                    action="SCRATCH_WIN",
+                    account="cash",
+                    amount=prize,
+                    before_cash=before_cash, before_bank=before_bank,
+                    after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                    note="slash"
+                )
+
+        await respond_safely(itx, content=msg, ephemeral=False)
+
+    @app_commands.command(name="inventory", description="View your inventory")
+    async def inventory_slash(self, itx: discord.Interaction):
+        rows = db.conn.execute(
+            "SELECT item_name, qty FROM inventory WHERE uid=? ORDER BY item_name ASC",
+            (str(itx.user.id),)
+        ).fetchall()
+
+        if not rows:
+            return await respond_safely(itx, content="Your inventory is empty.", ephemeral=True)
+
+        lines = [f"• **{r['item_name']}** × {int(r['qty'])}" for r in rows if int(r["qty"]) > 0]
+        emb = self.econ_embed(title=f"{itx.user.display_name}'s Inventory", description="\n".join(lines))
+        self.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, ephemeral=True)
+
+    @app_commands.command(name="loan_request", description="Request a bank loan (Bank Staff approval required)")
+    async def loan_request(self, itx: discord.Interaction, amount: float, reason: str):
+        if amount <= 0:
+            return await respond_safely(itx, content="❌ Amount must be > 0.", ephemeral=True)
+
+        created = now_ts()
+        with db.conn:
+            loan_id = db.conn.execute(
+                "INSERT INTO loans (borrower_id, amount, reason, status, created_ts) VALUES (?, ?, ?, 'PENDING', ?)",
+                (str(itx.user.id), float(amount), reason, created),
+            ).lastrowid
+
+            # pending tx meta stores loan_id
+            tx_id = db.conn.execute(
+                "INSERT INTO pending_tx (sender_id, receiver_id, amount, tx_type, note, meta) VALUES ('BANK', ?, ?, 'LOAN', ?, ?)",
+                (str(itx.user.id), float(amount), reason, str(loan_id)),
+            ).lastrowid
+
+        desk = itx.guild.get_channel(LOAN_DESK_CHANNEL_ID)
+        if desk:
+            emb = self.econ_embed(title="Loan Request Submitted")
+            emb.add_field(name="Borrower:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
+            emb.add_field(name="Amount:", value=money(amount), inline=True)
+            emb.add_field(name="Loan ID:", value=f"`{loan_id}`", inline=True)
+            emb.add_field(name="Reason:", value=reason, inline=False)
+            self.add_footer(emb, itx.guild)
+
+            await desk.send(
+                content=f"<@&{BANK_STAFF_ROLE_ID}>",
+                embed=emb,
+                view=ApprovalButtons(self, tx_id, "LOAN", "BANK", str(itx.user.id), float(amount), note=reason, meta=str(loan_id)),
+            )
+
+        await respond_safely(itx, content=f"✅ Loan request `{loan_id}` submitted for Bank Staff review.", ephemeral=True)
+
+    @app_commands.command(name="economy_admin", description="Bank Staff: Open economy admin dashboard")
+    async def economy_admin(self, itx: discord.Interaction):
+        if not itx.guild or not isinstance(itx.user, discord.Member) or not has_role(itx.user, BANK_STAFF_ROLE_ID):
+            return await respond_safely(itx, content="❌ Bank Staff only.", ephemeral=True)
+
+        emb = self.econ_embed(
+            title="Economy Admin Dashboard",
+            description="Use the buttons below to manage balances and view history."
+        )
+        self.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, view=AdminDashboardView(self), ephemeral=True)
+
+    # ---------------- citations
+    @app_commands.command(name="cite", description="LPD: Issue a citation (requires supervisor approval)")
+    async def cite_slash(
+        self,
+        itx: discord.Interaction,
+        citizen: discord.Member,
+        penal_code: str,
+        amount: float,
+        brief_description: str,
+    ):
+        if not isinstance(itx.user, discord.Member) or not has_role(itx.user, LPD_ROLE_ID):
+            return await respond_safely(itx, content="LPD only.", ephemeral=True)
+        if amount <= 0:
+            return await respond_safely(itx, content="❌ Amount must be > 0.", ephemeral=True)
+
+        case_code = f"LV-{random.randint(1000, 9999)}"
+        created = now_ts()
+
+        confirm = self.dps_embed(
+            title="Confirm Citation Submission:",
+            description="> Confirm the citation below before it is sent to supervisors."
+        )
+        confirm.add_field(name="Officer:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
+        confirm.add_field(name="Citizen:", value=f"{citizen.mention} ({citizen.id})", inline=False)
+        confirm.add_field(name="Case Code:", value=f"`{case_code}`", inline=True)
+        confirm.add_field(name="Fine Amount:", value=money(amount), inline=True)
+        confirm.add_field(name="Penal Code:", value=penal_code, inline=False)
+        confirm.add_field(name="Brief Description:", value=brief_description, inline=False)
+        self.add_footer(confirm, itx.guild)
+
+        cog = self
+
+        class ConfirmCite(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=45)
+
+            @discord.ui.button(label="Submit", style=discord.ButtonStyle.success)
+            async def submit(self, c_itx: discord.Interaction, _: discord.ui.Button):
+                if c_itx.user.id != itx.user.id:
+                    return await respond_safely(c_itx, content="This isn’t your confirmation.", ephemeral=True)
+
+                async with db.lock:
+                    with db.conn:
+                        db.conn.execute("""
+                            INSERT INTO citations (
+                                case_code, guild_id, officer_id, citizen_id, penal_code, brief_description,
+                                amount, status, created_ts, decided_ts, decided_by
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, 0, NULL)
+                        """, (case_code, str(itx.guild.id), str(itx.user.id), str(citizen.id), penal_code, brief_description, float(amount), created))
+
+                chan = itx.guild.get_channel(CITATION_SUBMIT_CHANNEL)
+                if chan:
+                    sup = cog.dps_embed(
+                        title="Citation Review Required:",
+                        description="> A supervisor must approve or deny this citation."
+                    )
+                    sup.add_field(name="Officer:", value=f"{itx.user.mention} ({itx.user.id})", inline=False)
+                    sup.add_field(name="Citizen:", value=f"{citizen.mention} ({citizen.id})", inline=False)
+                    sup.add_field(name="Fine Amount:", value=money(amount), inline=True)
+                    sup.add_field(name="Case Code:", value=f"`{case_code}`", inline=True)
+                    sup.add_field(name="Penal Code:", value=penal_code, inline=False)
+                    sup.add_field(name="Status:", value="Pending supervisor review.", inline=False)
+                    cog.add_footer(sup, itx.guild)
+
+                    await chan.send(
+                        content=f"{itx.user.mention} | <@&{LPD_SUPERVISOR_ROLE_ID}>",
+                        embed=sup,
+                        view=CitationActions(
+                            cog,
+                            officer_id=itx.user.id,
+                            citizen_id=citizen.id,
+                            case_code=case_code,
+                            penal_code=penal_code,
+                            brief_description=brief_description,
+                            amount=float(amount),
+                        )
+                    )
+
+                await c_itx.response.edit_message(content="✅ Citation submitted to supervisors.", embed=None, view=None)
+
+            @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+            async def cancel(self, c_itx: discord.Interaction, _: discord.ui.Button):
+                if c_itx.user.id != itx.user.id:
+                    return await respond_safely(c_itx, content="This isn’t your menu.", ephemeral=True)
+                await c_itx.response.edit_message(content="Cancelled.", embed=None, view=None)
+
+        await respond_safely(itx, embed=confirm, view=ConfirmCite(), ephemeral=True)
+
+    @cite_slash.autocomplete("penal_code")
+    async def _cite_autocomplete(self, itx: discord.Interaction, current: str):
+        return await penal_autocomplete(itx, current)
+
+    @app_commands.command(name="citationhistory", description="LPD: View a citizen's approved citation history")
+    async def citation_history(self, itx: discord.Interaction, citizen: discord.Member):
+        if not isinstance(itx.user, discord.Member) or not has_role(itx.user, LPD_ROLE_ID):
+            return await respond_safely(itx, content="LPD only.", ephemeral=True)
+
+        rows = db.conn.execute("""
+            SELECT case_code, penal_code, brief_description, amount, created_ts
+            FROM citations
+            WHERE citizen_id = ? AND status = 'APPROVED'
+            ORDER BY created_ts DESC
+            LIMIT 25
+        """, (str(citizen.id),)).fetchall()
+
+        emb = self.dps_embed(title="Approved Citation History:", description=f"Citizen: {citizen.mention} ({citizen.id})")
+        if not rows:
+            emb.add_field(name="Records:", value="No approved citations found.", inline=False)
+        else:
+            text = []
+            for r in rows:
+                text.append(
+                    f"**`{r['case_code']}`** • {money(float(r['amount']))} • {ts_discord(int(r['created_ts']), 'd')}\n"
+                    f"{r['penal_code']}\n"
+                    f"_{r['brief_description']}_"
+                )
+            emb.add_field(name="Citations:", value="\n\n".join(text)[:4000], inline=False)
+
+        self.add_footer(emb, itx.guild)
+        await respond_safely(itx, embed=emb, ephemeral=True)
+
+    # ============================================================
+    # PREFIX COMMANDS (only in ECONOMY_PREFIX_CHANNEL_ID)
+    # ============================================================
+
+    async def _prefix_gate(self, ctx: commands.Context) -> bool:
+        return bool(ctx.guild and ctx.channel and ctx.channel.id == ECONOMY_PREFIX_CHANNEL_ID)
+
+    @commands.command(name="balance")
+    async def p_balance(self, ctx: commands.Context, user: Optional[discord.Member] = None):
+        if not await self._prefix_gate(ctx):
+            return
+        target = user or ctx.author
+        u = await db.get_user(target.id)
+
+        emb = self.econ_embed(title=f"Account Balances: {target.display_name}")
+        emb.add_field(name="Bank:", value=money(float(u["bank"])), inline=True)
+        emb.add_field(name="Cash:", value=money(float(u["cash"])), inline=True)
+        self.add_footer(emb, ctx.guild)
+        await ctx.send(embed=emb)
+
+    @commands.command(name="deposit")
+    async def p_deposit(self, ctx: commands.Context, amount: str):
+        if not await self._prefix_gate(ctx):
+            return
+        u = await db.get_user(ctx.author.id)
+        cash = float(u["cash"])
+        val = parse_amount(amount, max_value=cash)
+        if val is None:
+            return await ctx.send("❌ Usage: `?deposit all` OR `?deposit 6,835`")
+        if cash < val:
+            return await ctx.send("❌ Not enough cash.")
+
+        async with db.lock:
+            u_before = await db.get_user(ctx.author.id)
+            before_cash = float(u_before["cash"])
+            before_bank = float(u_before["bank"])
+
+            with db.conn:
+                db.conn.execute(
+                    "UPDATE users SET cash = cash - ?, bank = bank + ? WHERE uid=?",
+                    (float(val), float(val), str(ctx.author.id))
+                )
+
+            u_after = await db.get_user(ctx.author.id)
+            log_money_history(
+                actor_id=ctx.author.id,
+                target_id=ctx.author.id,
+                action="DEPOSIT",
+                account="cash->bank",
+                amount=val,
+                before_cash=before_cash, before_bank=before_bank,
+                after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                note="prefix"
+            )
+
+        await ctx.send(f"✅ Deposited **{money(val)}** to your bank.")
+
+    @commands.command(name="withdraw")
+    async def p_withdraw(self, ctx: commands.Context, amount: str):
+        if not await self._prefix_gate(ctx):
+            return
+        u = await db.get_user(ctx.author.id)
+        bank = float(u["bank"])
+        val = parse_amount(amount, max_value=bank)
+        if val is None:
+            return await ctx.send("❌ Usage: `?withdraw all` OR `?withdraw 6,835`")
+        if bank < val:
+            return await ctx.send("❌ Not enough bank funds.")
+
+        async with db.lock:
+            u_before = await db.get_user(ctx.author.id)
+            before_cash = float(u_before["cash"])
+            before_bank = float(u_before["bank"])
+
+            with db.conn:
+                db.conn.execute(
+                    "UPDATE users SET bank = bank - ?, cash = cash + ? WHERE uid=?",
+                    (float(val), float(val), str(ctx.author.id))
+                )
+
+            u_after = await db.get_user(ctx.author.id)
+            log_money_history(
+                actor_id=ctx.author.id,
+                target_id=ctx.author.id,
+                action="WITHDRAW",
+                account="bank->cash",
+                amount=val,
+                before_cash=before_cash, before_bank=before_bank,
+                after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                note="prefix"
+            )
+
+        await ctx.send(f"✅ Withdrew **{money(val)}** to your cash.")
+
+    @commands.command(name="gamble")
+    async def p_gamble(self, ctx: commands.Context, amount: str):
+        if not await self._prefix_gate(ctx):
+            return
+
+        row = db.conn.execute("SELECT last_ts FROM gamble_cooldown WHERE uid=?", (str(ctx.author.id),)).fetchone()
+        last_ts = int(row["last_ts"]) if row else 0
+        now = now_ts()
+        if (now - last_ts) < GAMBLE_COOLDOWN_SECONDS:
+            remain = GAMBLE_COOLDOWN_SECONDS - (now - last_ts)
+            return await ctx.send(f"⏳ Slow down. Try again {ts_discord(now + remain, 'R')}.")
+
+        u = await db.get_user(ctx.author.id)
+        cash = float(u["cash"])
+        val = parse_amount(amount, max_value=cash)
+        if val is None:
+            return await ctx.send("❌ Usage: `?gamble all` OR `?gamble 6,835`")
+        if cash < val:
+            return await ctx.send("❌ Not enough cash.")
+
+        win = (random.random() < GAMBLE_WIN_CHANCE)
+
+        async with db.lock:
+            u_before = await db.get_user(ctx.author.id)
+            before_cash = float(u_before["cash"])
+            before_bank = float(u_before["bank"])
+
+            with db.conn:
+                db.conn.execute("""
+                    INSERT INTO gamble_cooldown (uid, last_ts)
+                    VALUES (?, ?)
+                    ON CONFLICT(uid) DO UPDATE SET last_ts=excluded.last_ts
+                """, (str(ctx.author.id), now))
+
+                if win:
+                    db.conn.execute("UPDATE users SET cash = cash + ? WHERE uid=?", (float(val), str(ctx.author.id)))
+                    msg = f"🎲 **WIN!** You gained **{money(val)}**."
+                    delta = float(val)
+                else:
+                    db.conn.execute("UPDATE users SET cash = cash - ? WHERE uid=?", (float(val), str(ctx.author.id)))
+                    msg = f"🎲 **LOSS.** You lost **{money(val)}**."
+                    delta = -float(val)
+
+            u_after = await db.get_user(ctx.author.id)
+            log_money_history(
+                actor_id=ctx.author.id,
+                target_id=ctx.author.id,
+                action="GAMBLE",
+                account="cash",
+                amount=delta,
+                before_cash=before_cash, before_bank=before_bank,
+                after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                note="prefix"
+            )
+
+        await ctx.send(msg)
+
+    @commands.command(name="inventory")
+    async def p_inventory(self, ctx: commands.Context):
+        if not await self._prefix_gate(ctx):
+            return
+        rows = db.conn.execute(
+            "SELECT item_name, qty FROM inventory WHERE uid=? ORDER BY item_name ASC",
+            (str(ctx.author.id),)
+        ).fetchall()
+
+        if not rows:
+            return await ctx.send("Your inventory is empty.")
+
+        lines = [f"• **{r['item_name']}** × {int(r['qty'])}" for r in rows if int(r["qty"]) > 0]
+        emb = self.econ_embed(title=f"{ctx.author.display_name}'s Inventory", description="\n".join(lines))
+        self.add_footer(emb, ctx.guild)
+        await ctx.send(embed=emb)
+
+    @commands.command(name="shop")
+    async def p_shop(self, ctx: commands.Context):
+        if not await self._prefix_gate(ctx):
+            return
+
+        today = date.today().isoformat()
+        row = db.conn.execute("SELECT last_buy_date FROM scratch_daily WHERE uid=?", (str(ctx.author.id),)).fetchone()
+        can_buy = not (row and (row["last_buy_date"] or "") == today)
+
+        emb = self.econ_embed(
+            title="Shop",
+            description=(
+                f"**{SCRATCH_ITEM_NAME}** — {money(SCRATCH_PRICE)} cash\n"
+                f"> Buy 1 per day.\n"
+                f"> Use `?scratch` or `/scratch`."
+            )
+        )
+        self.add_footer(emb, ctx.guild)
+        await ctx.send(embed=emb, view=ShopView(self, ctx.author.id, can_buy_today=can_buy))
+
+    @commands.command(name="scratch")
+    async def p_scratch(self, ctx: commands.Context):
+        if not await self._prefix_gate(ctx):
+            return
+
+        if get_inventory_qty(ctx.author.id, SCRATCH_ITEM_NAME) <= 0:
+            return await ctx.send("❌ You don't have a scratch card. Use `?shop` to buy one.")
+
+        async with db.lock:
+            ok = remove_inventory_item(ctx.author.id, SCRATCH_ITEM_NAME, 1)
+            if not ok:
+                return await ctx.send("❌ You don't have a scratch card.")
+
+        roll = random.random()
+        if roll < 0.97:
+            prize = 0.0
+            msg = "🧾 **Scratch Result:** Unlucky… no win this time."
+        elif roll < 0.995:
+            prize = 10.0
+            msg = f"🧾 **Scratch Result:** You won **{money(prize)}**!"
+        elif roll < 0.999:
+            prize = 50.0
+            msg = f"🧾 **Scratch Result:** Nice win! You won **{money(prize)}**!"
+        else:
+            prize = 500.0
+            msg = f"🧾 **Scratch Result:** 🏆 JACKPOT! You won **{money(prize)}**!"
+
+        if prize > 0:
+            async with db.lock:
+                u_before = await db.get_user(ctx.author.id)
+                before_cash = float(u_before["cash"])
+                before_bank = float(u_before["bank"])
+
+                with db.conn:
+                    db.conn.execute("UPDATE users SET cash = cash + ? WHERE uid=?", (float(prize), str(ctx.author.id)))
+
+                u_after = await db.get_user(ctx.author.id)
+                log_money_history(
+                    actor_id=ctx.author.id,
+                    target_id=ctx.author.id,
+                    action="SCRATCH_WIN",
+                    account="cash",
+                    amount=prize,
+                    before_cash=before_cash, before_bank=before_bank,
+                    after_cash=float(u_after["cash"]), after_bank=float(u_after["bank"]),
+                    note="prefix"
+                )
+
+        await ctx.send(msg)
 
 # ============================================================
 # SETUP

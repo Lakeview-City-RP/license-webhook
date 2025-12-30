@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import io
 import math
+import asyncio
 from datetime import datetime, timedelta
 from threading import Thread
 
@@ -19,6 +20,18 @@ from flask import Flask, request, jsonify
 # --- discord.py ---
 import discord
 from discord.ext import commands
+
+# ============================================================
+# CONSTANTS (IDS)
+# ============================================================
+
+LOG_CHANNEL_ID = 1436890841703645285
+
+ROLE_PROV_1_ID = 1436150194726113330
+ROLE_PROV_2_ID = 1454680487917256786
+ROLE_OFFICIAL_ID = 1455075670907686912
+
+DB_PATH = "workforce.db"
 
 # ============================================================
 # TOKEN / DISCORD SETUP
@@ -305,11 +318,90 @@ def create_license_image(
 
 
 # ============================================================
+# SHEETS SYNC (ROBUST: SYNC OR ASYNC)
+# ============================================================
+
+def _schedule_sheet_update(discord_id: str, license_info: dict, points: int = 0):
+    """
+    Safe to call from Flask thread. Schedules DMV Cog sheet update in the bot loop.
+    Works whether _update_google_sheet_row is sync or async.
+    """
+    try:
+        dmv = bot.get_cog("DMVCog")
+        if not dmv or not hasattr(dmv, "_update_google_sheet_row"):
+            return
+
+        class FakeMember:
+            def __init__(self, did):
+                self.id = int(did)
+
+            def __str__(self):
+                return f"{self.id}"
+
+        member = FakeMember(discord_id)
+
+        fn = dmv._update_google_sheet_row
+
+        if asyncio.iscoroutinefunction(fn):
+            asyncio.run_coroutine_threadsafe(fn(member, license_info, points), bot.loop)
+        else:
+            bot.loop.call_soon_threadsafe(fn, member, license_info, points)
+
+    except Exception as e:
+        print(f"Error syncing to sheets: {e}")
+
+
+# ============================================================
+# DB MIGRATION HELPERS
+# ============================================================
+
+def _ensure_license_table_and_columns(conn: sqlite3.Connection):
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS licenses (
+            discord_id TEXT PRIMARY KEY,
+            roblox_username TEXT,
+            roblox_display TEXT,
+            roleplay_name TEXT,
+            age TEXT,
+            address TEXT,
+            eye_color TEXT,
+            height TEXT,
+            license_number TEXT,
+            issued_at TEXT,
+            expires_at TEXT
+        )
+    """)
+    conn.commit()
+
+    # Ensure newer columns exist (migration-safe)
+    cur.execute("PRAGMA table_info(licenses)")
+    cols = {row[1] for row in cur.fetchall()}
+
+    if "license_type" not in cols:
+        cur.execute("ALTER TABLE licenses ADD COLUMN license_type TEXT")
+    if "license_code" not in cols:
+        cur.execute("ALTER TABLE licenses ADD COLUMN license_code TEXT")
+
+    conn.commit()
+
+
+# ============================================================
 # SEND TO DISCORD (UPDATED LOGIC)
 # ============================================================
 
-async def send_license_to_discord(img_data, filename, discord_id, license_type="standard"):
+async def send_license_to_discord(img_data, filename, discord_id, license_type="official"):
     await bot.wait_until_ready()
+
+    # Normalize license_type for our logic/styles
+    license_type = (license_type or "official").lower().strip()
+    if license_type in ("standard", "full", "official"):
+        normalized_type = "official"
+    elif license_type == "provisional":
+        normalized_type = "provisional"
+    else:
+        normalized_type = "official"
 
     # Create separate file objects for DM and Channel (Discord needs fresh pointer)
     file_dm = discord.File(io.BytesIO(img_data), filename=filename)
@@ -317,43 +409,62 @@ async def send_license_to_discord(img_data, filename, discord_id, license_type="
 
     dm_success = False
 
-    # --- 1. DM THE USER (CUSTOMIZED BASED ON TYPE) ---
+    # --- 1. DM THE USER (PING THEM IN THE DM) ---
     try:
         user = await bot.fetch_user(int(discord_id))
         if user:
-            # Customize DM Embed based on license type
-            if license_type == "provisional":
+            if normalized_type == "provisional":
+                dm_content = (
+                    f"<@{discord_id}>\n"
+                    "✅ Your **Provisional License** has been generated. The license image is attached below."
+                )
                 embed_dm = discord.Embed(
                     title="🔰 Provisional License Issued",
-                    description="You have been issued a **Provisional License**. Please drive carefully and adhere to learner restrictions.",
-                    color=0xE67E22  # Orange
+                    description="Please follow all learner / provisional restrictions while driving.",
+                    color=0xE67E22
                 )
             else:
+                dm_content = (
+                    f"<@{discord_id}>\n"
+                    "✅ Your **Official License** has been generated. The license image is attached below."
+                )
                 embed_dm = discord.Embed(
                     title="🪪 Official Lakeview City License",
-                    description="Your official driver license has been processed and is ready for use.",
-                    color=0x2ECC71  # Green
+                    description="Your provisional status has been upgraded to an official license (where applicable).",
+                    color=0x2ECC71
                 )
 
             embed_dm.set_image(url=f"attachment://{filename}")
-            embed_dm.set_footer(text="Lakeview City DMV • Official Document",
-                                icon_url=bot.user.avatar.url if bot.user.avatar else None)
+            embed_dm.set_footer(
+                text="Lakeview City DMV • Official Document",
+                icon_url=bot.user.avatar.url if bot.user.avatar else None
+            )
 
-            await user.send(embed=embed_dm, file=file_dm)
+            await user.send(content=dm_content, embed=embed_dm, file=file_dm)
             dm_success = True
     except Exception as e:
         print(f"Failed to DM user: {e}")
 
     # --- 2. SEND TO CHANNEL & MANAGE ROLES ---
-    channel = bot.get_channel(1436890841703645285)
-
-    if channel:
-        # --- ROLE MANAGEMENT LOGIC ---
+    channel = bot.get_channel(LOG_CHANNEL_ID)
+    if channel is None:
         try:
-            guild = channel.guild
-            member = guild.get_member(int(discord_id))
+            channel = await bot.fetch_channel(LOG_CHANNEL_ID)
+        except:
+            channel = None
 
-            # If member not in cache, fetch them
+    guild = None
+    if channel and hasattr(channel, "guild"):
+        guild = channel.guild
+    else:
+        # fallback: pick first guild the bot can see (best-effort)
+        if bot.guilds:
+            guild = bot.guilds[0]
+
+    # Role management (best-effort even if logging channel is missing)
+    try:
+        if guild:
+            member = guild.get_member(int(discord_id))
             if not member:
                 try:
                     member = await guild.fetch_member(int(discord_id))
@@ -361,36 +472,38 @@ async def send_license_to_discord(img_data, filename, discord_id, license_type="
                     member = None
 
             if member:
-                # Role IDs defined in request
-                ROLE_PROV_1 = guild.get_role(1436150194726113330)
-                ROLE_PROV_2 = guild.get_role(1454680487917256786)
-                ROLE_OFFICIAL = guild.get_role(1455075670907686912)
+                ROLE_PROV_1 = guild.get_role(ROLE_PROV_1_ID)
+                ROLE_PROV_2 = guild.get_role(ROLE_PROV_2_ID)
+                ROLE_OFFICIAL = guild.get_role(ROLE_OFFICIAL_ID)
 
-                if license_type == "provisional":
+                if normalized_type == "provisional":
                     # Add provisional roles
-                    if ROLE_PROV_1: await member.add_roles(ROLE_PROV_1)
-                    if ROLE_PROV_2: await member.add_roles(ROLE_PROV_2)
-
+                    if ROLE_PROV_1:
+                        await member.add_roles(ROLE_PROV_1, reason="Provisional license generated")
+                    if ROLE_PROV_2:
+                        await member.add_roles(ROLE_PROV_2, reason="Provisional license generated")
                 else:
-                    # Standard/Official License
-                    # Remove the specific provisional role (1454680487917256786)
-                    if ROLE_PROV_2: await member.remove_roles(ROLE_PROV_2)
-                    # Add official role (1455075670907686912)
-                    if ROLE_OFFICIAL: await member.add_roles(ROLE_OFFICIAL)
-        except Exception as e:
-            print(f"Role management error: {e}")
+                    # Official license:
+                    # Remove provisional role 145468... and add official role 145507...
+                    if ROLE_PROV_2:
+                        await member.remove_roles(ROLE_PROV_2, reason="Upgraded to official license")
+                    if ROLE_OFFICIAL:
+                        await member.add_roles(ROLE_OFFICIAL, reason="Official license generated")
+    except Exception as e:
+        print(f"Role management error: {e}")
 
-        # --- CHANNEL MESSAGE ---
+    # Channel log message
+    if channel:
         status = "Check your DMs!" if dm_success else "Your DMs are closed, so I'm posting it here!"
 
         embed_ch = discord.Embed(
             description=f"**License Issued for <@{discord_id}>**\n{status}",
-            color=0x3498db  # Blue
+            color=0x3498db
         )
         embed_ch.set_image(url=f"attachment://{filename}")
         embed_ch.set_footer(text="DMV Registry System")
 
-        await channel.send(content=f" <@{discord_id}>", embed=embed_ch, file=file_ch)
+        await channel.send(content=f"<@{discord_id}>", embed=embed_ch, file=file_ch)
 
 
 @bot.tree.command(name="getlicense", description="Retrieve your existing Lakeview license via DM")
@@ -398,8 +511,7 @@ async def getlicense(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     try:
-        # Connect to your existing database
-        async with aiosqlite.connect("workforce.db") as db:
+        async with aiosqlite.connect(DB_PATH) as db:
             cursor = await db.execute(
                 "SELECT * FROM licenses WHERE discord_id = ?",
                 (str(interaction.user.id),)
@@ -407,48 +519,73 @@ async def getlicense(interaction: discord.Interaction):
             row = await cursor.fetchone()
 
         if not row:
-            return await interaction.followup.send("❌ No license found in the system. Please apply first!",
-                                                   ephemeral=True)
+            return await interaction.followup.send("❌ No license found in the system. Please apply first!", ephemeral=True)
 
-        # Re-generating the image based on stored DB data
-        # Note: Mapping depends on your DB schema order
-        # Assuming: 1=username, 3=rp_name, 4=age, 5=addr, 6=eye, 7=height, 8=lic_num, 9=issued, 10=expires
+        # Table order (after migration):
+        # 0 discord_id
+        # 1 roblox_username
+        # 2 roblox_display
+        # 3 roleplay_name
+        # 4 age
+        # 5 address
+        # 6 eye_color
+        # 7 height
+        # 8 license_number
+        # 9 issued_at
+        # 10 expires_at
+        # 11 license_type
+        # 12 license_code
 
-        # We fetch the avatar again to ensure it's fresh
         avatar_url = interaction.user.display_avatar.url
         avatar_bytes = requests.get(avatar_url).content
 
-        # Convert stored strings back to datetime objects
         try:
-            issued = datetime.fromisoformat(row[9])
-            expires = datetime.fromisoformat(row[10])
+            issued = datetime.fromisoformat(row[9]) if row[9] else datetime.utcnow()
+            expires = datetime.fromisoformat(row[10]) if row[10] else issued + timedelta(days=150)
         except (ValueError, TypeError):
-            # Fallback if DB format is weird
             issued = datetime.utcnow()
             expires = issued + timedelta(days=150)
 
-        # Default to standard for retrieval unless stored differently
+        stored_type = (row[11] or "official").lower().strip()
+        if stored_type in ("standard", "full", "official"):
+            stored_type = "official"
+        elif stored_type != "provisional":
+            stored_type = "official"
+
         img = create_license_image(
             row[1], avatar_bytes, row[2], row[3], row[4],
-            row[5], row[6], row[7], issued, expires, row[8], "standard"
+            row[5], row[6], row[7], issued, expires, row[8], stored_type
         )
 
-        # Send via DM
         filename = f"{row[1]}_license.png"
         file = discord.File(io.BytesIO(img), filename=filename)
 
+        # DM content pings them
+        dm_content = f"<@{interaction.user.id}>\nHere is your saved **{stored_type.title()}** license."
         embed = discord.Embed(title="License Retrieval", color=0x3498db)
         embed.set_image(url=f"attachment://{filename}")
         embed.set_footer(text="Lakeview City DMV Archive")
 
-        await interaction.user.send(embed=embed, file=file)
-        await interaction.followup.send("I have sent your license to your Direct-Messages!", ephemeral=True)
+        await interaction.user.send(content=dm_content, embed=embed, file=file)
+        await interaction.followup.send("✅ I have sent your license to your Direct-Messages!", ephemeral=True)
+
+        # Optional: re-sync sheet on retrieval (keeps sheet consistent)
+        license_code = row[12] if len(row) > 12 else None
+        license_info = {
+            "roblox_username": row[1],
+            "roblox_display": row[2],
+            "roleplay_name": row[3],
+            "license_number": row[8],
+            "license_type": stored_type,
+            "license_code": license_code or "C",
+        }
+        _schedule_sheet_update(str(interaction.user.id), license_info, 0)
 
     except discord.Forbidden:
-        await interaction.followup.send("I couldn't DM you. Please open your Privacy Settings.", ephemeral=True)
+        await interaction.followup.send("❌ I couldn't DM you. Please open your Privacy Settings.", ephemeral=True)
     except Exception as e:
         print(e)
-        await interaction.followup.send("An error occurred while retrieving your license.", ephemeral=True)
+        await interaction.followup.send("❌ An error occurred while retrieving your license.", ephemeral=True)
 
 
 # ============================================================
@@ -474,7 +611,16 @@ def license_endpoint():
         eye = data.get("eye_color")
         height = data.get("height")
         discord_id = data.get("discord_id")
-        license_type = data.get("license_type", "standard").lower()
+
+        incoming_type = (data.get("license_type", "official") or "official").lower().strip()
+        # normalize incoming type (so "standard"/"official"/"full" all behave as official)
+        if incoming_type in ("standard", "official", "full"):
+            license_type = "official"
+        elif incoming_type == "provisional":
+            license_type = "provisional"
+        else:
+            license_type = "official"
+
         license_code = data.get("license_code", "C")
         lic_num = data.get("license_number", username)
 
@@ -484,7 +630,6 @@ def license_endpoint():
         avatar_bytes = requests.get(avatar).content
 
         issued = datetime.utcnow()
-
         if license_type == "provisional":
             expires = issued + timedelta(days=3)
         else:
@@ -511,28 +656,12 @@ def license_endpoint():
         )
 
         # ============================================================
-        # SAVE LICENSE INFO INTO THE DATABASE FOR DMV POINT SYSTEM
+        # SAVE LICENSE INFO INTO THE DATABASE
         # ============================================================
 
-        conn = sqlite3.connect("workforce.db")
+        conn = sqlite3.connect(DB_PATH)
+        _ensure_license_table_and_columns(conn)
         cur = conn.cursor()
-
-        # Create table if not exists (safety check)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS licenses (
-                discord_id TEXT PRIMARY KEY,
-                roblox_username TEXT,
-                roblox_display TEXT,
-                roleplay_name TEXT,
-                age TEXT,
-                address TEXT,
-                eye_color TEXT,
-                height TEXT,
-                license_number TEXT,
-                issued_at TEXT,
-                expires_at TEXT
-            )
-        """)
 
         cur.execute(
             """
@@ -547,8 +676,10 @@ def license_endpoint():
                 height,
                 license_number,
                 issued_at,
-                expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                expires_at,
+                license_type,
+                license_code
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(discord_id) DO UPDATE SET
                 roblox_username = excluded.roblox_username,
                 roblox_display  = excluded.roblox_display,
@@ -559,7 +690,9 @@ def license_endpoint():
                 height          = excluded.height,
                 license_number  = excluded.license_number,
                 issued_at       = excluded.issued_at,
-                expires_at      = excluded.expires_at
+                expires_at      = excluded.expires_at,
+                license_type    = excluded.license_type,
+                license_code    = excluded.license_code
             """,
             (
                 discord_id,
@@ -573,56 +706,28 @@ def license_endpoint():
                 lic_num,
                 issued.isoformat(),
                 expires.isoformat(),
+                license_type,
+                license_code,
             ),
         )
 
         conn.commit()
-
-        # ---- SYNC TO GOOGLE SHEETS IMMEDIATELY ----
-        # Wrapped in try/except to prevent Flask crash if Cog isn't loaded
-        try:
-            from cogs.dmv import DMVCog
-
-            def sync_license_to_sheets():
-                if not bot.is_ready():
-                    return
-
-                dmv = bot.get_cog("DMVCog")
-                if not dmv or not hasattr(dmv, "_worksheet"):
-                    return
-
-                class FakeMember:
-                    def __init__(self, did):
-                        self.id = int(did)
-
-                    def __str__(self):
-                        return f"{self.id}"
-
-                member = FakeMember(discord_id)
-
-                license_info = {
-                    "roblox_username": username,
-                    "roblox_display": display,
-                    "roleplay_name": roleplay,
-                    "license_number": lic_num,
-                    "license_type": license_type,
-                    "license_code": license_code,
-                }
-
-                bot.loop.call_soon_threadsafe(
-                    dmv._update_google_sheet_row,
-                    member,
-                    license_info,
-                    0  # points start at 0
-                )
-
-            sync_license_to_sheets()
-        except ImportError:
-            print("DMV Cog not found, skipping sheets sync.")
-        except Exception as e:
-            print(f"Error syncing to sheets: {e}")
-
         conn.close()
+
+        # ============================================================
+        # SYNC TO GOOGLE SHEETS IMMEDIATELY
+        # ============================================================
+
+        license_info = {
+            "roblox_username": username,
+            "roblox_display": display,
+            "roleplay_name": roleplay,
+            "license_number": lic_num,
+            "license_type": license_type,
+            "license_code": license_code,
+        }
+
+        _schedule_sheet_update(str(discord_id), license_info, 0)
 
         return jsonify({"status": "ok"}), 200
 
@@ -638,13 +743,14 @@ def license_endpoint():
 
 async def setup_hook():
     # Create database BEFORE loading any extension that uses it
-    bot.db = await aiosqlite.connect("workforce.db")
+    bot.db = await aiosqlite.connect(DB_PATH)
 
     # Load other cogs - Wrapped in try/except to avoid crash if files miss
     extensions = [
         "cogs.erlc_application",
         "cogs.cad",
-        "cogs.dept_roster",  # Fixed space in name usually unlikely in python imports
+        "cogs.dmv",
+        "cogs.dept roster",  # Fixed space in name usually unlikely in python imports
         "cogs.economy",
         "cogs.auto_giveaway",
         "cogs.blackmarket"
@@ -683,10 +789,6 @@ async def on_ready():
 def run_flask():
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
 
-
 if __name__ == "__main__":
-    if TOKEN:
-        Thread(target=run_flask, daemon=True).start()
-        bot.run(TOKEN)
-    else:
-        print("Set DISCORD_TOKEN env var or create token.txt")
+    Thread(target=run_flask, daemon=True).start()
+    bot.run(TOKEN)
