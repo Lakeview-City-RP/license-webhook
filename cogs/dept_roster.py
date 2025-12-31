@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 class SheetTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.sheet = None
         # --- CONFIGURATION ---
         self.target_guild_id = 1445181271344025693
         self.nickname_guild_id = 1328475009542258688
