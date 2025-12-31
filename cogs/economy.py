@@ -21,8 +21,16 @@ from discord.ext import commands, tasks
 DB_NAME = "lakeview_shadow.db"
 MAIN_GUILD_ID = 1328475009542258688
 
+
+# Citations can be CREATED from these guilds (but will still route review/log/court to MAIN)
+DOC_GUILD_ID = 1452795248387297354
+DPS_GUILD_ID = 1445181271344025693
+LCFR_GUILD_ID = 1449942107614609442
+ALLOWED_CITATION_GUILDS = {MAIN_GUILD_ID, DOC_GUILD_ID, DPS_GUILD_ID, LCFR_GUILD_ID}
+
 # Economy prefix commands allowed ONLY here
 ECONOMY_PREFIX_CHANNEL_ID = 1442671320910528664
+
 
 # Shifts
 SALARY_VC_CATEGORY_ID = 1436503704143396914
@@ -103,14 +111,6 @@ DOC_PAY_ROLES: Dict[int, float] = {
 }
 
 BASE_PAY_PER_MINUTE = 8.00
-
-# Callsigns
-LCFR_CALLSIGNS = {
-    "E-13","E-17","R-13","R-17","T-13","T-17","L-13","L-17","TW-13","TW-17","S-13","S-17","B-13","B-17",
-    "SO-13","SO-17","WE-13","WE-17","WB-13","WB-17","WT-13","WT-17","M-13","M-17","MCC13","MCC17","BUS13","BUS17",
-    "CAR13","CAR17","BN13","BN17","CMD13","CMD17","MED13","MED17"
-}
-DOC_CALLSIGNS = {"!DISPATCH", "!SUPERVISOR", "!SECONDARY"}
 
 # Scratch cards
 SCRATCH_ITEM_NAME = "Scratch Card"
@@ -265,14 +265,41 @@ def money(x: float) -> str:
 def has_role(member: discord.Member, role_id: int) -> bool:
     return any(r.id == role_id for r in member.roles)
 
-def first_token(display_name: str) -> str:
-    return (display_name or "").strip().split(" ")[0].strip()
-
 def normalize_callsign(tok: str) -> str:
-    t = (tok or "").upper()
+    t = (tok or "").strip().upper()
     if t.endswith("-R") or t.endswith("-O"):
         t = t[:-2]
     return t
+
+# ============================================================
+# CALLSIGN PARSING + VALIDATION (UPDATED)
+# ============================================================
+
+# Required nickname format:
+#   "<CALLSIGN> | <roblox>"
+#   "<CALLSIGN> I <roblox>"
+CALLSIGN_PARSE_RE = re.compile(
+    r"^\s*(?P<callsign>.+?)\s*(?:\|\s*|\sI\s+)\s*(?P<rbx>\S+)\s*$",
+    re.IGNORECASE
+)
+
+# DPS callsign = 1–4 digits
+DPS_CALLSIGN_RE = re.compile(r"^\d{1,4}$")
+
+# LCFR apparatus callsign (allow optional hyphen, e.g. E-13 or E13, MCC13, MCC-13)
+LCFR_CALLSIGN_RE = re.compile(
+    r"^(?:E|R|T|L|TW|S|B|SO|WE|WB|WT|M|MCC|BUS|CAR|BN|CMD|MED)-?(?:13|17)$",
+    re.IGNORECASE
+)
+
+# DOC callsign prefix
+DOC_CALLSIGN_RE = re.compile(r"^!(?:DISPATCH|SECONDARY|SUPERVISOR)$", re.IGNORECASE)
+
+def extract_callsign(display_name: str) -> Optional[str]:
+    m = CALLSIGN_PARSE_RE.match(display_name or "")
+    if not m:
+        return None
+    return normalize_callsign(str(m.group("callsign")))
 
 def parse_amount(raw: str, *, max_value: float) -> Optional[float]:
     s = str(raw).strip().lower()
@@ -389,6 +416,9 @@ class Database:
                 )
             """)
 
+
+
+            # ✅ UPDATED: store dept/callsign/rate so we can split shifts cleanly
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS active_shifts (
                     uid TEXT PRIMARY KEY,
@@ -396,7 +426,10 @@ class Database:
                     gross REAL DEFAULT 0,
                     start_ts INTEGER DEFAULT 0,
                     last_seen_ts INTEGER DEFAULT 0,
-                    afk_timer INTEGER DEFAULT 0
+                    afk_timer INTEGER DEFAULT 0,
+                    dept TEXT DEFAULT '',
+                    callsign TEXT DEFAULT '',
+                    rate REAL DEFAULT 0
                 )
             """)
 
@@ -456,18 +489,19 @@ class Database:
                 )
             """)
 
+            self.conn.execute("DROP TABLE IF EXISTS loans")
             self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS loans (
-                    loan_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    borrower_id TEXT,
-                    amount REAL,
-                    reason TEXT,
-                    status TEXT DEFAULT 'PENDING',
-                    created_ts INTEGER,
-                    decided_ts INTEGER,
-                    decided_by TEXT
-                )
-            """)
+                   CREATE TABLE loans (
+                       loan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       borrower_id TEXT,
+                       amount REAL,
+                       reason TEXT,
+                       status TEXT DEFAULT 'PENDING',
+                       created_ts INTEGER,
+                       decided_ts INTEGER DEFAULT 0,
+                       decided_by TEXT DEFAULT NULL
+                   )
+               """)
 
             # admin/history audit
             self.conn.execute("""
@@ -506,6 +540,9 @@ class Database:
             ("start_ts", "ALTER TABLE active_shifts ADD COLUMN start_ts INTEGER DEFAULT 0"),
             ("last_seen_ts", "ALTER TABLE active_shifts ADD COLUMN last_seen_ts INTEGER DEFAULT 0"),
             ("afk_timer", "ALTER TABLE active_shifts ADD COLUMN afk_timer INTEGER DEFAULT 0"),
+            ("dept", "ALTER TABLE active_shifts ADD COLUMN dept TEXT DEFAULT ''"),
+            ("callsign", "ALTER TABLE active_shifts ADD COLUMN callsign TEXT DEFAULT ''"),
+            ("rate", "ALTER TABLE active_shifts ADD COLUMN rate REAL DEFAULT 0"),
         ]:
             if table_exists(self.conn, "active_shifts") and not column_exists(self.conn, "active_shifts", col):
                 with self.conn:
@@ -536,6 +573,8 @@ class Database:
             cur.execute("SELECT * FROM users WHERE uid=?", (uid,))
             row = cur.fetchone()
         return row
+
+
 
 db = Database()
 
@@ -878,7 +917,6 @@ class CitationActions(discord.ui.View):
         emb = discord.Embed(title=new_title, color=DPS_COLOR)
         emb.set_thumbnail(url=DPS_THUMBNAIL)
 
-        # keep existing fields except Status -> replace
         if old:
             for f in old.fields:
                 if f.name == "Status:":
@@ -894,7 +932,6 @@ class CitationActions(discord.ui.View):
             return await respond_safely(itx, content="Supervisor permissions required.", ephemeral=True)
 
         async with db.lock:
-            # Deduct funds + mark approved
             u_before = await db.get_user(self.citizen_id)
             before_cash = float(u_before["cash"])
             before_bank = float(u_before["bank"])
@@ -918,14 +955,12 @@ class CitationActions(discord.ui.View):
                 note=self.case_code
             )
 
-        # Update supervisor message (title/status)
         try:
             new_emb = self._updated_embed(itx.message, new_title="Citation Approved:", new_status="Approved (transaction completed).")
             await itx.response.edit_message(embed=new_emb, view=None)
         except Exception:
             await respond_safely(itx, content=f"✅ Approved by {itx.user.mention}", ephemeral=True)
 
-        # Outputs
         await self.cog._post_citation_outputs(
             guild=itx.guild,
             officer_id=self.officer_id,
@@ -1181,32 +1216,47 @@ class EconomyCog(commands.Cog):
         emb.set_thumbnail(url=DPS_THUMBNAIL)
         return emb
 
-    # ---------------- pay logic
-    async def get_pay_rate_and_dept(self, main_member: discord.Member) -> Tuple[float, str]:
+    # ---------------- pay logic (STRICT CALLSIGN)
+    async def get_pay_context(self, main_member: discord.Member) -> Optional[Tuple[float, str, str]]:
+        """
+        Returns (rate_per_minute, dept, callsign) OR None if NOT payable.
+        Enforces:
+          - Nickname must include callsign: "<CALLSIGN> | user" OR "<CALLSIGN> I user"
+          - DPS: callsign 1-4 digits + has LPD_ROLE_ID
+          - LCFR: apparatus callsign + has LCFR_MEMBER_ROLE_ID
+          - DOC: !Dispatch/!Secondary/!Supervisor + has DISPATCH_ROLE_ID
+        """
+        callsign = extract_callsign(main_member.display_name)
+        if not callsign:
+            return None
+
         uid = main_member.id
-        tok = normalize_callsign(first_token(main_member.display_name))
 
         # DOC
-        if tok in DOC_CALLSIGNS or has_role(main_member, DISPATCH_ROLE_ID):
+        if has_role(main_member, DISPATCH_ROLE_ID) and DOC_CALLSIGN_RE.match(callsign):
             ext = await get_external_member(self.bot, DOC_PAY_GUILD_ID, uid)
             r = highest_rate(ext, DOC_PAY_ROLES)
-            return (r if r is not None else BASE_PAY_PER_MINUTE), "DOC"
+            return (float(r if r is not None else BASE_PAY_PER_MINUTE), "DOC", callsign)
 
         # LCFR
-        if has_role(main_member, LCFR_MEMBER_ROLE_ID) and tok in LCFR_CALLSIGNS:
+        if has_role(main_member, LCFR_MEMBER_ROLE_ID) and LCFR_CALLSIGN_RE.match(callsign):
             ext = await get_external_member(self.bot, LCFR_PAY_GUILD_ID, uid)
             r = highest_rate(ext, LCFR_PAY_ROLES)
-            return (r if r is not None else BASE_PAY_PER_MINUTE), "LCFR"
+            return (float(r if r is not None else BASE_PAY_PER_MINUTE), "LCFR", callsign)
 
-        # DPS default
-        ext = await get_external_member(self.bot, DPS_PAY_GUILD_ID, uid)
-        r = highest_rate(ext, DPS_PAY_ROLES)
-        return (r if r is not None else BASE_PAY_PER_MINUTE), "DPS"
+        # DPS
+        if has_role(main_member, LPD_ROLE_ID) and DPS_CALLSIGN_RE.match(callsign):
+            ext = await get_external_member(self.bot, DPS_PAY_GUILD_ID, uid)
+            r = highest_rate(ext, DPS_PAY_ROLES)
+            return (float(r if r is not None else BASE_PAY_PER_MINUTE), "DPS", callsign)
+
+        return None  # no valid dept/callsign combo => NO PAY
 
     async def dm_payslip(self, guild: discord.Guild, uid: int, amount: float, meta: Optional[str]):
         start_ts = end_ts = minutes = 0
         rate = 0.0
         dept = "Shift"
+        callsign = ""
         try:
             if meta:
                 parts = meta.split("|")
@@ -1215,6 +1265,8 @@ class EconomyCog(commands.Cog):
                 minutes = int(parts[2])
                 rate = float(parts[3])
                 dept = str(parts[4])
+                if len(parts) >= 6:
+                    callsign = str(parts[5])
         except Exception:
             pass
 
@@ -1227,6 +1279,8 @@ class EconomyCog(commands.Cog):
                 return
 
         emb = self.econ_embed(title=f"{dept} Payslip", description="Your shift has been approved and paid.")
+        if callsign:
+            emb.add_field(name="Callsign:", value=f"`{callsign}`", inline=True)
         emb.add_field(name="Shift Start:", value=ts_discord(start_ts, "F") if start_ts else "N/A", inline=False)
         emb.add_field(name="Shift End:", value=ts_discord(end_ts, "F") if end_ts else "N/A", inline=False)
         emb.add_field(name="Minutes:", value=str(minutes), inline=True)
@@ -1239,8 +1293,65 @@ class EconomyCog(commands.Cog):
         except Exception:
             pass
 
+    async def _submit_shift_for_approval(
+        self,
+        *,
+        guild: discord.Guild,
+        member: discord.Member,
+        start_ts: int,
+        end_ts: int,
+        minutes: int,
+        gross: float,
+        rate: float,
+        dept: str,
+        callsign: str,
+        reason: str,
+    ):
+        if minutes <= 0 or gross <= 0:
+            return
+
+        if dept == "LCFR":
+            auth_channel_id = LCFR_AUTH_CHANNEL
+            ping_role = LCFR_SUPERVISOR_ROLE_ID
+            tx_type = "LCFR_SHIFT"
+        elif dept == "DOC":
+            auth_channel_id = DOC_AUTH_CHANNEL
+            ping_role = DOC_SUPERVISOR_ROLE_ID
+            tx_type = "DOC_SHIFT"
+        else:
+            auth_channel_id = LPD_AUTH_CHANNEL
+            ping_role = LPD_SUPERVISOR_ROLE_ID
+            tx_type = "DPS_SHIFT"
+
+        meta = f"{start_ts}|{end_ts}|{minutes}|{rate}|{dept}|{callsign}"
+
+        with db.conn:
+            tx_id = db.conn.execute("""
+                INSERT INTO pending_tx (sender_id, receiver_id, amount, tx_type, meta)
+                VALUES ('GOV', ?, ?, ?, ?)
+            """, (str(member.id), float(gross), tx_type, meta)).lastrowid
+
+        chan = guild.get_channel(auth_channel_id)
+        if chan:
+            emb = self.econ_embed(title=f"{dept} Shift Completed")
+            emb.add_field(name="Employee:", value=f"{member.mention} ({member.id})", inline=False)
+            emb.add_field(name="Callsign:", value=f"`{callsign}`", inline=True)
+            emb.add_field(name="Shift Start:", value=ts_discord(start_ts, "F"), inline=False)
+            emb.add_field(name="Shift End:", value=ts_discord(end_ts, "F"), inline=False)
+            emb.add_field(name="Minutes:", value=str(minutes), inline=True)
+            emb.add_field(name="Rate (per minute):", value=money(rate), inline=True)
+            emb.add_field(name="Pay:", value=money(gross), inline=False)
+            emb.add_field(name="Reason:", value=reason[:1024], inline=False)
+            self.add_footer(emb, guild)
+
+            await chan.send(
+                content=f"<@&{ping_role}>",
+                embed=emb,
+                view=ApprovalButtons(self, tx_id, tx_type, "GOV", str(member.id), float(gross), meta=meta),
+            )
+
     # ============================================================
-    # SHIFTS + AFK DRAG
+    # SHIFTS + AFK DRAG (UPDATED)
     # ============================================================
 
     @tasks.loop(minutes=1)
@@ -1267,6 +1378,7 @@ class EconomyCog(commands.Cog):
 
                 row = db.conn.execute("SELECT * FROM active_shifts WHERE uid=?", (str(m.id),)).fetchone()
 
+                # if inactive, do not accrue minutes, but keep AFK timer
                 if inactive:
                     if row:
                         with db.conn:
@@ -1277,11 +1389,16 @@ class EconomyCog(commands.Cog):
                         new_row = db.conn.execute("SELECT afk_timer FROM active_shifts WHERE uid=?", (str(m.id),)).fetchone()
                         afk_timer = int(new_row["afk_timer"]) if new_row else 0
                     else:
+                        # DO NOT create shift rows for civilians/no callsign
+                        ctx = await self.get_pay_context(m)
+                        if not ctx:
+                            continue
+                        rate_now, dept_now, callsign_now = ctx
                         with db.conn:
                             db.conn.execute("""
-                                INSERT INTO active_shifts (uid, minutes, gross, start_ts, last_seen_ts, afk_timer)
-                                VALUES (?, 0, 0, ?, ?, 1)
-                            """, (str(m.id), now, now))
+                                INSERT INTO active_shifts (uid, minutes, gross, start_ts, last_seen_ts, afk_timer, dept, callsign, rate)
+                                VALUES (?, 0, 0, ?, ?, 1, ?, ?, ?)
+                            """, (str(m.id), now, now, dept_now, callsign_now, float(rate_now)))
                         afk_timer = 1
 
                     if afk_timer >= AFK_LIMIT_MINUTES:
@@ -1292,25 +1409,93 @@ class EconomyCog(commands.Cog):
                             pass
                     continue
 
-                # active
-                rate, _dept = await self.get_pay_rate_and_dept(m)
+                # active: must have valid callsign+dept
+                ctx = await self.get_pay_context(m)
+                if not ctx:
+                    # if they had an active shift but now invalid, finalize it
+                    if row:
+                        minutes = int(row["minutes"] or 0)
+                        gross = float(row["gross"] or 0.0)
+                        start_ts = int(row["start_ts"] or 0) or (now - minutes * 60)
+                        dept_prev = str(row["dept"] or "")
+                        callsign_prev = str(row["callsign"] or "")
+                        rate_prev = float(row["rate"] or 0.0)
 
+                        with db.conn:
+                            db.conn.execute("DELETE FROM active_shifts WHERE uid=?", (str(m.id),))
+
+                        if dept_prev and callsign_prev and rate_prev > 0 and minutes > 0 and gross > 0:
+                            await self._submit_shift_for_approval(
+                                guild=guild,
+                                member=m,
+                                start_ts=start_ts,
+                                end_ts=now,
+                                minutes=minutes,
+                                gross=gross,
+                                rate=rate_prev,
+                                dept=dept_prev,
+                                callsign=callsign_prev,
+                                reason="Shift ended: callsign/department became invalid (no pay as civilian).",
+                            )
+                    continue
+
+                rate_now, dept_now, callsign_now = ctx
+
+                # start shift if missing
                 if not row:
                     with db.conn:
                         db.conn.execute("""
-                            INSERT INTO active_shifts (uid, minutes, gross, start_ts, last_seen_ts, afk_timer)
-                            VALUES (?, 1, ?, ?, ?, 0)
-                        """, (str(m.id), float(rate), now, now))
-                else:
+                            INSERT INTO active_shifts (uid, minutes, gross, start_ts, last_seen_ts, afk_timer, dept, callsign, rate)
+                            VALUES (?, 1, ?, ?, ?, 0, ?, ?, ?)
+                        """, (str(m.id), float(rate_now), now, now, dept_now, callsign_now, float(rate_now)))
+                    continue
+
+                prev_dept = str(row["dept"] or "")
+                prev_callsign = str(row["callsign"] or "")
+                prev_rate = float(row["rate"] or 0.0)
+
+                # split shift if callsign or dept changed
+                if prev_dept != dept_now or prev_callsign != callsign_now:
+                    minutes = int(row["minutes"] or 0)
+                    gross = float(row["gross"] or 0.0)
+                    start_ts = int(row["start_ts"] or 0) or (now - minutes * 60)
+
+                    with db.conn:
+                        db.conn.execute("DELETE FROM active_shifts WHERE uid=?", (str(m.id),))
+
+                    if prev_dept and prev_callsign and prev_rate > 0 and minutes > 0 and gross > 0:
+                        await self._submit_shift_for_approval(
+                            guild=guild,
+                            member=m,
+                            start_ts=start_ts,
+                            end_ts=now,
+                            minutes=minutes,
+                            gross=gross,
+                            rate=prev_rate,
+                            dept=prev_dept,
+                            callsign=prev_callsign,
+                            reason=f"Shift split: `{prev_callsign}`/{prev_dept} → `{callsign_now}`/{dept_now}.",
+                        )
+
+                    # start a new segment immediately
                     with db.conn:
                         db.conn.execute("""
-                            UPDATE active_shifts
-                            SET minutes = minutes + 1,
-                                gross = gross + ?,
-                                last_seen_ts = ?,
-                                afk_timer = 0
-                            WHERE uid = ?
-                        """, (float(rate), now, str(m.id)))
+                            INSERT INTO active_shifts (uid, minutes, gross, start_ts, last_seen_ts, afk_timer, dept, callsign, rate)
+                            VALUES (?, 1, ?, ?, ?, 0, ?, ?, ?)
+                        """, (str(m.id), float(rate_now), now, now, dept_now, callsign_now, float(rate_now)))
+                    continue
+
+                # normal accrue (use stored rate)
+                use_rate = prev_rate if prev_rate > 0 else float(rate_now)
+                with db.conn:
+                    db.conn.execute("""
+                        UPDATE active_shifts
+                        SET minutes = minutes + 1,
+                            gross = gross + ?,
+                            last_seen_ts = ?,
+                            afk_timer = 0
+                        WHERE uid = ?
+                    """, (float(use_rate), now, str(m.id)))
 
     @tasks.loop(seconds=60)
     async def cleanup_task(self):
@@ -1329,59 +1514,38 @@ class EconomyCog(commands.Cog):
                     continue
 
                 uid = int(row["uid"])
-                minutes = int(row["minutes"])
-                gross = float(row["gross"])
+                minutes = int(row["minutes"] or 0)
+                gross = float(row["gross"] or 0.0)
 
                 start_ts = int(row["start_ts"] or 0)
                 if start_ts <= 0:
                     start_ts = now - (minutes * 60)
                 end_ts = now
 
+                dept = str(row["dept"] or "")
+                callsign = str(row["callsign"] or "")
+                rate = float(row["rate"] or 0.0)
+
                 member = guild.get_member(uid)
-                if not member:
-                    with db.conn:
-                        db.conn.execute("DELETE FROM active_shifts WHERE uid=?", (str(uid),))
-                    continue
-
-                rate, dept = await self.get_pay_rate_and_dept(member)
-
-                if dept == "LCFR":
-                    auth_channel_id = LCFR_AUTH_CHANNEL
-                    ping_role = LCFR_SUPERVISOR_ROLE_ID
-                    tx_type = "LCFR_SHIFT"
-                elif dept == "DOC":
-                    auth_channel_id = DOC_AUTH_CHANNEL
-                    ping_role = DOC_SUPERVISOR_ROLE_ID
-                    tx_type = "DOC_SHIFT"
-                else:
-                    auth_channel_id = LPD_AUTH_CHANNEL
-                    ping_role = LPD_SUPERVISOR_ROLE_ID
-                    tx_type = "DPS_SHIFT"
-
-                meta = f"{start_ts}|{end_ts}|{minutes}|{rate}|{dept}"
-
                 with db.conn:
-                    tx_id = db.conn.execute("""
-                        INSERT INTO pending_tx (sender_id, receiver_id, amount, tx_type, meta)
-                        VALUES ('GOV', ?, ?, ?, ?)
-                    """, (str(uid), gross, tx_type, meta)).lastrowid
                     db.conn.execute("DELETE FROM active_shifts WHERE uid=?", (str(uid),))
 
-                chan = guild.get_channel(auth_channel_id)
-                if chan:
-                    emb = self.econ_embed(title=f"{dept} Shift Completed")
-                    emb.add_field(name="Employee:", value=f"{member.mention} ({member.id})", inline=False)
-                    emb.add_field(name="Shift Start:", value=ts_discord(start_ts, "F"), inline=False)
-                    emb.add_field(name="Shift End:", value=ts_discord(end_ts, "F"), inline=False)
-                    emb.add_field(name="Minutes:", value=str(minutes), inline=True)
-                    emb.add_field(name="Rate (per minute):", value=money(rate), inline=True)
-                    emb.add_field(name="Pay:", value=money(gross), inline=False)
-                    self.add_footer(emb, guild)
+                if not member:
+                    continue
 
-                    await chan.send(
-                        content=f"<@&{ping_role}>",
-                        embed=emb,
-                        view=ApprovalButtons(self, tx_id, tx_type, "GOV", str(uid), gross, meta=meta),
+                # only submit if payable (never pay civilians)
+                if dept in ("DPS", "LCFR", "DOC") and callsign and rate > 0 and minutes > 0 and gross > 0:
+                    await self._submit_shift_for_approval(
+                        guild=guild,
+                        member=member,
+                        start_ts=start_ts,
+                        end_ts=end_ts,
+                        minutes=minutes,
+                        gross=gross,
+                        rate=rate,
+                        dept=dept,
+                        callsign=callsign,
+                        reason="Shift ended (timed out / left salary VC).",
                     )
 
     # ============================================================
@@ -1491,7 +1655,6 @@ class EconomyCog(commands.Cog):
 
     @app_commands.command(name="gamble", description="Coinflip gamble from your CASH (very low win chance)")
     async def gamble_slash(self, itx: discord.Interaction, amount: float):
-        # cooldown stored in DB (works across restarts)
         row = db.conn.execute("SELECT last_ts FROM gamble_cooldown WHERE uid=?", (str(itx.user.id),)).fetchone()
         last_ts = int(row["last_ts"]) if row else 0
         now = now_ts()
@@ -1601,7 +1764,6 @@ class EconomyCog(commands.Cog):
             if not ok:
                 return await respond_safely(itx, content="❌ You don't have a scratch card.", ephemeral=True)
 
-        # VERY LOW win chance
         roll = random.random()
         if roll < 0.97:
             prize = 0.0
@@ -1666,7 +1828,6 @@ class EconomyCog(commands.Cog):
                 (str(itx.user.id), float(amount), reason, created),
             ).lastrowid
 
-            # pending tx meta stores loan_id
             tx_id = db.conn.execute(
                 "INSERT INTO pending_tx (sender_id, receiver_id, amount, tx_type, note, meta) VALUES ('BANK', ?, ?, 'LOAN', ?, ?)",
                 (str(itx.user.id), float(amount), reason, str(loan_id)),
@@ -1701,6 +1862,61 @@ class EconomyCog(commands.Cog):
         self.add_footer(emb, itx.guild)
         await respond_safely(itx, embed=emb, view=AdminDashboardView(self), ephemeral=True)
 
+    @app_commands.command(name="economy_reset_all", description="Admin: Reset everyone to Bank $5,000 and Cash $0")
+    async def economy_reset_all(self, itx: discord.Interaction):
+        # safety: only allow in MAIN guild
+        if not itx.guild or itx.guild.id != MAIN_GUILD_ID:
+            return await respond_safely(itx, content="❌ This command can only be used in the main server.", ephemeral=True)
+        if not isinstance(itx.user, discord.Member) or not itx.user.guild_permissions.administrator:
+            return await respond_safely(itx, content="❌ Administrator only.", ephemeral=True)
+
+        cog = self
+
+        class ResetAllView(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=45)
+
+            @discord.ui.button(label="Confirm Reset", style=discord.ButtonStyle.danger)
+            async def confirm(self, c_itx: discord.Interaction, _: discord.ui.Button):
+                if c_itx.user.id != itx.user.id:
+                    return await respond_safely(c_itx, content="This isn’t your confirmation.", ephemeral=True)
+
+                async with db.lock:
+                    row = db.conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
+                    total_users = int(row["n"]) if row else 0
+
+                    with db.conn:
+                        db.conn.execute("UPDATE users SET cash=0, bank=5000")
+                        # audit entry (single row)
+                        db.conn.execute(
+                            """
+                            INSERT INTO money_history
+                            (ts, actor_id, target_id, action, account, amount, before_cash, before_bank, after_cash, after_bank, note)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (now_ts(), str(itx.user.id), "ALL", "ADMIN_RESET_ALL", "both", 0.0, 0.0, 0.0, 0.0, 5000.0, "Set everyone to bank=5000, cash=0"),
+                        )
+
+                emb = cog.econ_embed(
+                    title="Economy Reset Complete",
+                    description=f"✅ Reset **{total_users}** users to **Bank {money(5000)}** and **Cash {money(0)}**."
+                )
+                cog.add_footer(emb, itx.guild)
+                await c_itx.response.edit_message(embed=emb, content=None, view=None)
+
+            @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+            async def cancel(self, c_itx: discord.Interaction, _: discord.ui.Button):
+                if c_itx.user.id != itx.user.id:
+                    return await respond_safely(c_itx, content="This isn’t your menu.", ephemeral=True)
+                await c_itx.response.edit_message(content="Cancelled.", embed=None, view=None)
+
+        warn = self.econ_embed(
+            title="Confirm Economy Reset",
+            description="⚠️ This will set **EVERYONE** to:\n• Bank: **$5,000**\n• Cash: **$0**\n\nThis cannot be undone."
+        )
+        self.add_footer(warn, itx.guild)
+        await respond_safely(itx, embed=warn, view=ResetAllView(), ephemeral=True)
+
     # ---------------- citations
     @app_commands.command(name="cite", description="LPD: Issue a citation (requires supervisor approval)")
     async def cite_slash(
@@ -1711,8 +1927,17 @@ class EconomyCog(commands.Cog):
         amount: float,
         brief_description: str,
     ):
-        if not isinstance(itx.user, discord.Member) or not has_role(itx.user, LPD_ROLE_ID):
+        if not itx.guild:
+            return await respond_safely(itx, content="❌ This command can only be used in a server.", ephemeral=True)
+
+        if itx.guild.id not in ALLOWED_CITATION_GUILDS:
+            return await respond_safely(itx, content="❌ Citations aren’t enabled in this server.", ephemeral=True)
+
+        # Check LPD perms from MAIN guild so /cite works cross-guild
+        main_member = await get_external_member(self.bot, MAIN_GUILD_ID, itx.user.id)
+        if not main_member or not has_role(main_member, LPD_ROLE_ID):
             return await respond_safely(itx, content="LPD only.", ephemeral=True)
+
         if amount <= 0:
             return await respond_safely(itx, content="❌ Amount must be > 0.", ephemeral=True)
 
@@ -1751,7 +1976,11 @@ class EconomyCog(commands.Cog):
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, 0, NULL)
                         """, (case_code, str(itx.guild.id), str(itx.user.id), str(citizen.id), penal_code, brief_description, float(amount), created))
 
-                chan = itx.guild.get_channel(CITATION_SUBMIT_CHANNEL)
+                main_guild = cog.bot.get_guild(MAIN_GUILD_ID)
+                if not main_guild:
+                    return await c_itx.response.edit_message(content="❌ Main server not found.", embed=None, view=None)
+
+                chan = main_guild.get_channel(CITATION_SUBMIT_CHANNEL)
                 if chan:
                     sup = cog.dps_embed(
                         title="Citation Review Required:",
@@ -1763,7 +1992,7 @@ class EconomyCog(commands.Cog):
                     sup.add_field(name="Case Code:", value=f"`{case_code}`", inline=True)
                     sup.add_field(name="Penal Code:", value=penal_code, inline=False)
                     sup.add_field(name="Status:", value="Pending supervisor review.", inline=False)
-                    cog.add_footer(sup, itx.guild)
+                    cog.add_footer(sup, main_guild)
 
                     await chan.send(
                         content=f"{itx.user.mention} | <@&{LPD_SUPERVISOR_ROLE_ID}>",
@@ -1795,7 +2024,14 @@ class EconomyCog(commands.Cog):
 
     @app_commands.command(name="citationhistory", description="LPD: View a citizen's approved citation history")
     async def citation_history(self, itx: discord.Interaction, citizen: discord.Member):
-        if not isinstance(itx.user, discord.Member) or not has_role(itx.user, LPD_ROLE_ID):
+        if not itx.guild:
+            return await respond_safely(itx, content="❌ This command can only be used in a server.", ephemeral=True)
+
+        if itx.guild.id not in ALLOWED_CITATION_GUILDS:
+            return await respond_safely(itx, content="❌ Citations aren’t enabled in this server.", ephemeral=True)
+
+        main_member = await get_external_member(self.bot, MAIN_GUILD_ID, itx.user.id)
+        if not main_member or not has_role(main_member, LPD_ROLE_ID):
             return await respond_safely(itx, content="LPD only.", ephemeral=True)
 
         rows = db.conn.execute("""

@@ -63,14 +63,15 @@ APPLY_DESCRIPTION = (
     "> **``-``** <:DOC:1451326657368424581> Department of Communications\n"
     "> **``-``** <:CBA:1451327226179223562> Civilian Business Association\n"
     "> **``-``** <:Factions:1451327473907273764> Faction Operations\n"
-    "> **``-``** <:DMV:1451326868346376355> Department of Motor Vehicles"
+    "> **``-``** <:Courts:1455076019823317053> Lakeview City Courts\n"
+    "> **``-``** <:DMV2:1455075715887272049> Department of Motor Vehicles"
 )
 
 QUESTIONS = [
-    "Why do you want to join whitelisted?", "What is your age?", "What timezone are you in?",
-    "How did you find our main server?", "A customer refuses to pay. How do you roleplay this?",
-    "You are in a traffic collision. What do you do?", "How do you make a traffic stop realistic?",
-    "You see a homeless person outside your home. What do you do?",
+    "Why do you want to join our whitelisted server?", "How old are you?", "What timezone are you in?",
+    "How did you find our [main server](https://discord.gg/lkvc)?", "A customer refuses to pay for an item in a business you own. How do you respond to this?",
+    "How would you handle a vehicle pursuit continuing behind you down Riverside Drive?", "You are being pulled over by a Law Enforcement Officer, how do you make this traffic stop more entertaining?",
+    "As you are driving home, you see a homeless person sat on your front door. What do you do?",
     "A driver crashes behind you. What steps do you take?"
 ]
 
