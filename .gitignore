@@ -1,6 +1,27 @@
+# secrets
 token.txt
+*service_account*.json
+google_service_account.json
+
+# backups
+/_db_backup/
+/_secrets_backup/
+
+# sqlite
+*.db
+*.db-shm
+*.db-wal
+
+# python cache
 __pycache__/
-.vscode/
+**/__pycache__/
+*.pyc
+
+# env + editor
 .venv/
+.vscode/
+.idea/
+
+# licenses folder (keep json tracked)
 licenses/
-licenses.json
+!licenses.json
