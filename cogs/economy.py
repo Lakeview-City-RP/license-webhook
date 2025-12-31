@@ -6,7 +6,6 @@ import json
 import random
 import re
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime, timezone, date
 from typing import Dict, Optional, Tuple, List, Any
 
@@ -21,7 +20,6 @@ from discord.ext import commands, tasks
 DB_NAME = "lakeview_shadow.db"
 MAIN_GUILD_ID = 1328475009542258688
 
-
 # Citations can be CREATED from these guilds (but will still route review/log/court to MAIN)
 DOC_GUILD_ID = 1452795248387297354
 DPS_GUILD_ID = 1445181271344025693
@@ -30,7 +28,6 @@ ALLOWED_CITATION_GUILDS = {MAIN_GUILD_ID, DOC_GUILD_ID, DPS_GUILD_ID, LCFR_GUILD
 
 # Economy prefix commands allowed ONLY here
 ECONOMY_PREFIX_CHANNEL_ID = 1442671320910528664
-
 
 # Shifts
 SALARY_VC_CATEGORY_ID = 1436503704143396914
@@ -44,9 +41,9 @@ DOC_AUTH_CHANNEL = 1455339511553982536
 TRANSFER_AUTH_CHANNEL = 1440448634591121601
 
 # Citations
-CITATION_SUBMIT_CHANNEL = 1454978409804337192      # supervisor review channel
-CITATION_LOG_CHANNEL = 1454978126500073658         # approved log channel
-COURT_CHANNEL = 1454978555707396312                # court revoke channel
+CITATION_SUBMIT_CHANNEL = 1454978409804337192  # supervisor review channel
+CITATION_LOG_CHANNEL = 1454978126500073658     # approved log channel
+COURT_CHANNEL = 1454978555707396312            # court revoke channel
 
 # Loans
 LOAN_DESK_CHANNEL_ID = 1454184371824361507
@@ -242,12 +239,14 @@ PENAL_CODES: List[str] = [
     "610V — Traffic & Vehicles — Hit and Run (Property Damage)",
 ]
 
+
 async def penal_autocomplete(_: discord.Interaction, current: str):
     cur = (current or "").lower().strip()
     if not cur:
         return [app_commands.Choice(name=p, value=p) for p in PENAL_CODES[:25]]
     matches = [p for p in PENAL_CODES if cur in p.lower()]
     return [app_commands.Choice(name=p, value=p) for p in matches[:25]]
+
 
 # ============================================================
 # UTIL
@@ -256,20 +255,25 @@ async def penal_autocomplete(_: discord.Interaction, current: str):
 def now_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
+
 def ts_discord(ts: int, style: str = "F") -> str:
     return f"<t:{int(ts)}:{style}>"
+
 
 def money(x: float) -> str:
     return f"${x:,.2f}"
 
+
 def has_role(member: discord.Member, role_id: int) -> bool:
     return any(r.id == role_id for r in member.roles)
+
 
 def normalize_callsign(tok: str) -> str:
     t = (tok or "").strip().upper()
     if t.endswith("-R") or t.endswith("-O"):
         t = t[:-2]
     return t
+
 
 # ============================================================
 # CALLSIGN PARSING + VALIDATION (UPDATED)
@@ -295,11 +299,13 @@ LCFR_CALLSIGN_RE = re.compile(
 # DOC callsign prefix
 DOC_CALLSIGN_RE = re.compile(r"^!(?:DISPATCH|SECONDARY|SUPERVISOR)$", re.IGNORECASE)
 
+
 def extract_callsign(display_name: str) -> Optional[str]:
     m = CALLSIGN_PARSE_RE.match(display_name or "")
     if not m:
         return None
     return normalize_callsign(str(m.group("callsign")))
+
 
 def parse_amount(raw: str, *, max_value: float) -> Optional[float]:
     s = str(raw).strip().lower()
@@ -314,6 +320,7 @@ def parse_amount(raw: str, *, max_value: float) -> Optional[float]:
         return None
     return v
 
+
 def parse_user_id(raw: str) -> Optional[int]:
     s = (raw or "").strip()
     m = re.search(r"(\d{15,25})", s)
@@ -323,6 +330,7 @@ def parse_user_id(raw: str) -> Optional[int]:
         return int(m.group(1))
     except Exception:
         return None
+
 
 async def respond_safely(
     itx: discord.Interaction,
@@ -346,7 +354,6 @@ async def respond_safely(
         else:
             await itx.followup.send(**kwargs)
     except (discord.NotFound, discord.InteractionResponded):
-        # fallback: just try send to channel
         try:
             if itx.channel:
                 fallback: Dict[str, Any] = {}
@@ -360,6 +367,7 @@ async def respond_safely(
         except Exception:
             pass
 
+
 async def get_external_member(bot: commands.Bot, guild_id: int, uid: int) -> Optional[discord.Member]:
     g = bot.get_guild(guild_id)
     if not g:
@@ -372,6 +380,7 @@ async def get_external_member(bot: commands.Bot, guild_id: int, uid: int) -> Opt
     except Exception:
         return None
 
+
 def highest_rate(member: Optional[discord.Member], mapping: Dict[int, float]) -> Optional[float]:
     if not member:
         return None
@@ -383,6 +392,7 @@ def highest_rate(member: Optional[discord.Member], mapping: Dict[int, float]) ->
                 best = val
     return best
 
+
 # ============================================================
 # DATABASE + MIGRATIONS
 # ============================================================
@@ -391,12 +401,14 @@ def column_exists(conn: sqlite3.Connection, table: str, col: str) -> bool:
     cur = conn.execute(f"PRAGMA table_info({table})")
     return any(r[1] == col for r in cur.fetchall())
 
+
 def table_exists(conn: sqlite3.Connection, table: str) -> bool:
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         (table,)
     ).fetchone()
     return bool(row)
+
 
 class Database:
     def __init__(self):
@@ -416,9 +428,7 @@ class Database:
                 )
             """)
 
-
-
-            # ✅ UPDATED: store dept/callsign/rate so we can split shifts cleanly
+            # store dept/callsign/rate so we can split shifts cleanly
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS active_shifts (
                     uid TEXT PRIMARY KEY,
@@ -465,7 +475,7 @@ class Database:
                 )
             """)
 
-            # scratch daily (we will MIGRATE columns below if missing)
+            # scratch daily
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS scratch_daily (
                     uid TEXT PRIMARY KEY,
@@ -489,19 +499,19 @@ class Database:
                 )
             """)
 
-            self.conn.execute("DROP TABLE IF EXISTS loans")
+            # ✅ FIX: DO NOT DROP LOANS ON STARTUP
             self.conn.execute("""
-                   CREATE TABLE loans (
-                       loan_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                       borrower_id TEXT,
-                       amount REAL,
-                       reason TEXT,
-                       status TEXT DEFAULT 'PENDING',
-                       created_ts INTEGER,
-                       decided_ts INTEGER DEFAULT 0,
-                       decided_by TEXT DEFAULT NULL
-                   )
-               """)
+                CREATE TABLE IF NOT EXISTS loans (
+                    loan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    borrower_id TEXT,
+                    amount REAL,
+                    reason TEXT,
+                    status TEXT DEFAULT 'PENDING',
+                    created_ts INTEGER,
+                    decided_ts INTEGER DEFAULT 0,
+                    decided_by TEXT DEFAULT NULL
+                )
+            """)
 
             # admin/history audit
             self.conn.execute("""
@@ -557,10 +567,21 @@ class Database:
                 with self.conn:
                     self.conn.execute(ddl)
 
-        # ✅ FIX YOUR ERROR: scratch_daily.last_buy_date missing
+        # scratch_daily.last_buy_date missing
         if table_exists(self.conn, "scratch_daily") and not column_exists(self.conn, "scratch_daily", "last_buy_date"):
             with self.conn:
                 self.conn.execute("ALTER TABLE scratch_daily ADD COLUMN last_buy_date TEXT")
+
+        # loans table migration (if you ever had an older loans schema)
+        # (add columns only if missing)
+        if table_exists(self.conn, "loans"):
+            for col, ddl in [
+                ("decided_ts", "ALTER TABLE loans ADD COLUMN decided_ts INTEGER DEFAULT 0"),
+                ("decided_by", "ALTER TABLE loans ADD COLUMN decided_by TEXT DEFAULT NULL"),
+            ]:
+                if not column_exists(self.conn, "loans", col):
+                    with self.conn:
+                        self.conn.execute(ddl)
 
     async def get_user(self, uid: int | str):
         uid = str(uid)
@@ -575,7 +596,6 @@ class Database:
         return row
 
 
-
 db = Database()
 
 # ============================================================
@@ -588,6 +608,7 @@ def get_inventory_qty(uid: int, item_name: str) -> int:
         (str(uid), item_name),
     ).fetchone()
     return int(row["qty"]) if row else 0
+
 
 def add_inventory_item(uid: int, item_name: str, qty: int, purchased_ts: Optional[int] = None):
     qty = int(qty)
@@ -604,6 +625,7 @@ def add_inventory_item(uid: int, item_name: str, qty: int, purchased_ts: Optiona
             VALUES (?, ?, ?, ?)
         """, (str(uid), item_name, qty, int(purchased_ts or now_ts())))
 
+
 def remove_inventory_item(uid: int, item_name: str, qty: int) -> bool:
     qty = int(qty)
     if qty <= 0:
@@ -617,6 +639,7 @@ def remove_inventory_item(uid: int, item_name: str, qty: int) -> bool:
             (qty, str(uid), item_name),
         )
     return True
+
 
 # ============================================================
 # HISTORY HELPERS
@@ -654,6 +677,7 @@ def log_money_history(
             note[:500],
         ))
 
+
 # ============================================================
 # VIEWS
 # ============================================================
@@ -683,7 +707,6 @@ class ApprovalButtons(discord.ui.View):
         self.meta = meta
 
     def _allowed(self, member: discord.Member) -> bool:
-        # only role pinged can approve: BANK staff for loans/transfers
         if self.tx_type in ("TRANSFER", "LOAN"):
             return has_role(member, BANK_STAFF_ROLE_ID)
         if self.tx_type == "DPS_SHIFT":
@@ -699,23 +722,23 @@ class ApprovalButtons(discord.ui.View):
         if not itx.guild or not isinstance(itx.user, discord.Member) or not self._allowed(itx.user):
             return await respond_safely(itx, content="❌ You can't approve this.", ephemeral=True)
 
+        # ✅ prevent "Interaction failed" on slow DB / API calls
+        await itx.response.defer(thinking=True)
+
         async with db.lock:
-            # verify still pending
             row = db.conn.execute("SELECT status FROM pending_tx WHERE tx_id=?", (self.tx_id,)).fetchone()
             if not row or row["status"] != "PENDING":
-                return await respond_safely(itx, content="⚠️ This request is no longer pending.", ephemeral=True)
+                return await itx.edit_original_response(content="⚠️ This request is no longer pending.", view=None)
 
-            # transfer needs re-check funds at approval time
             if self.tx_type == "TRANSFER":
                 s = await db.get_user(self.sender)
                 if float(s["bank"]) < self.amount:
                     with db.conn:
                         db.conn.execute("UPDATE pending_tx SET status='DENIED' WHERE tx_id=?", (self.tx_id,))
-                    return await respond_safely(itx, content="❌ Denied: sender no longer has enough bank funds.", ephemeral=True)
+                    return await itx.edit_original_response(content="❌ Denied: sender no longer has enough bank funds.", view=None)
 
             with db.conn:
                 if self.tx_type in ("DPS_SHIFT", "LCFR_SHIFT", "DOC_SHIFT"):
-                    # pay employee to bank
                     u_before = await db.get_user(self.receiver)
                     before_cash = float(u_before["cash"])
                     before_bank = float(u_before["bank"])
@@ -733,7 +756,6 @@ class ApprovalButtons(discord.ui.View):
                     )
 
                 elif self.tx_type == "LOAN":
-                    # pay borrower to bank + mark loans table approved (loan_id in meta)
                     u_before = await db.get_user(self.receiver)
                     before_cash = float(u_before["cash"])
                     before_bank = float(u_before["bank"])
@@ -760,7 +782,6 @@ class ApprovalButtons(discord.ui.View):
                     )
 
                 elif self.tx_type == "TRANSFER":
-                    # move bank -> bank
                     s_before = await db.get_user(self.sender)
                     r_before = await db.get_user(self.receiver)
                     sbc, sbb = float(s_before["cash"]), float(s_before["bank"])
@@ -795,7 +816,6 @@ class ApprovalButtons(discord.ui.View):
 
                 db.conn.execute("UPDATE pending_tx SET status='APPROVED' WHERE tx_id=?", (self.tx_id,))
 
-        # announce approvals in economy channel
         eco = itx.guild.get_channel(ECONOMY_PREFIX_CHANNEL_ID)
         if eco:
             if self.tx_type == "TRANSFER":
@@ -809,22 +829,22 @@ class ApprovalButtons(discord.ui.View):
                     f"📝 Reason: {self.note or 'N/A'}"
                 )
 
-        # shift payslip DM
         if self.tx_type in ("DPS_SHIFT", "LCFR_SHIFT", "DOC_SHIFT"):
             await self.cog.dm_payslip(itx.guild, int(self.receiver), self.amount, self.meta)
 
-        await itx.response.edit_message(content=f"✅ Approved by {itx.user.mention}", view=None)
+        await itx.edit_original_response(content=f"✅ Approved by {itx.user.mention}", view=None)
 
     @discord.ui.button(label="Deny", style=discord.ButtonStyle.danger)
     async def deny(self, itx: discord.Interaction, _: discord.ui.Button):
         if not itx.guild or not isinstance(itx.user, discord.Member) or not self._allowed(itx.user):
             return await respond_safely(itx, content="❌ You can't deny this.", ephemeral=True)
 
+        await itx.response.defer(thinking=True)
+
         async with db.lock:
             with db.conn:
                 db.conn.execute("UPDATE pending_tx SET status='DENIED' WHERE tx_id=?", (self.tx_id,))
 
-                # if loan, mark loans denied as well (loan_id in meta)
                 if self.tx_type == "LOAN" and self.meta:
                     try:
                         loan_id = int(self.meta)
@@ -848,7 +868,8 @@ class ApprovalButtons(discord.ui.View):
                     f"📝 Reason: {self.note or 'N/A'}"
                 )
 
-        await itx.response.edit_message(content=f"❌ Denied by {itx.user.mention}", view=None)
+        await itx.edit_original_response(content=f"❌ Denied by {itx.user.mention}", view=None)
+
 
 class RevokeCitationView(discord.ui.View):
     def __init__(self, cog: "EconomyCog", case_code: str, citizen_id: int, amount: float):
@@ -862,6 +883,8 @@ class RevokeCitationView(discord.ui.View):
     async def revoke(self, itx: discord.Interaction, _: discord.ui.Button):
         if not itx.guild or not itx.user.guild_permissions.administrator:
             return await respond_safely(itx, content="Admin only.", ephemeral=True)
+
+        await itx.response.defer(thinking=True)
 
         async with db.lock:
             u_before = await db.get_user(self.citizen_id)
@@ -886,7 +909,8 @@ class RevokeCitationView(discord.ui.View):
                 note=self.case_code
             )
 
-        await itx.response.edit_message(content=f"⚖️ Case `{self.case_code}` revoked & refunded.", view=None)
+        await itx.edit_original_response(content=f"⚖️ Case `{self.case_code}` revoked & refunded.", view=None)
+
 
 class CitationActions(discord.ui.View):
     def __init__(
@@ -931,6 +955,8 @@ class CitationActions(discord.ui.View):
         if not itx.guild or not isinstance(itx.user, discord.Member) or not self._is_supervisor(itx.user):
             return await respond_safely(itx, content="Supervisor permissions required.", ephemeral=True)
 
+        await itx.response.defer(thinking=True)
+
         async with db.lock:
             u_before = await db.get_user(self.citizen_id)
             before_cash = float(u_before["cash"])
@@ -957,9 +983,9 @@ class CitationActions(discord.ui.View):
 
         try:
             new_emb = self._updated_embed(itx.message, new_title="Citation Approved:", new_status="Approved (transaction completed).")
-            await itx.response.edit_message(embed=new_emb, view=None)
+            await itx.edit_original_response(embed=new_emb, view=None, content=None)
         except Exception:
-            await respond_safely(itx, content=f"✅ Approved by {itx.user.mention}", ephemeral=True)
+            await itx.edit_original_response(content=f"✅ Approved by {itx.user.mention}", view=None)
 
         await self.cog._post_citation_outputs(
             guild=itx.guild,
@@ -976,6 +1002,8 @@ class CitationActions(discord.ui.View):
         if not itx.guild or not isinstance(itx.user, discord.Member) or not self._is_supervisor(itx.user):
             return await respond_safely(itx, content="Supervisor permissions required.", ephemeral=True)
 
+        await itx.response.defer(thinking=True)
+
         async with db.lock:
             with db.conn:
                 db.conn.execute(
@@ -985,9 +1013,10 @@ class CitationActions(discord.ui.View):
 
         try:
             new_emb = self._updated_embed(itx.message, new_title="Citation Denied:", new_status="Denied (no transaction).")
-            await itx.response.edit_message(embed=new_emb, view=None)
+            await itx.edit_original_response(embed=new_emb, view=None, content=None)
         except Exception:
-            await respond_safely(itx, content=f"❌ Denied by {itx.user.mention}", ephemeral=True)
+            await itx.edit_original_response(content=f"❌ Denied by {itx.user.mention}", view=None)
+
 
 # ---------------- SHOP / SCRATCH VIEW
 
@@ -1006,15 +1035,19 @@ class ShopView(discord.ui.View):
         if itx.user.id != self.buyer_id:
             return await respond_safely(itx, content="This isn’t your shop.", ephemeral=True)
 
-        today = date.today().isoformat()
+        await itx.response.defer(ephemeral=True, thinking=True)
+
+        # ✅ UTC-based "daily" limit
+        today = datetime.now(timezone.utc).date().isoformat()
+
         row = db.conn.execute("SELECT last_buy_date FROM scratch_daily WHERE uid=?", (str(itx.user.id),)).fetchone()
         if row and (row["last_buy_date"] or "") == today:
-            return await respond_safely(itx, content="❌ You already bought a scratch card today.", ephemeral=True)
+            return await itx.edit_original_response(content="❌ You already bought a scratch card today.", view=None)
 
         u = await db.get_user(itx.user.id)
         cash = float(u["cash"])
         if cash < SCRATCH_PRICE:
-            return await respond_safely(itx, content="❌ Not enough cash.", ephemeral=True)
+            return await itx.edit_original_response(content="❌ Not enough cash.", view=None)
 
         async with db.lock:
             u_before = await db.get_user(itx.user.id)
@@ -1043,8 +1076,10 @@ class ShopView(discord.ui.View):
             )
 
         emb = self.cog.econ_embed(title="Purchase Complete", description=f"You purchased **{SCRATCH_ITEM_NAME}**.\nUse `/scratch` or `?scratch`.")
-        self.cog.add_footer(emb, itx.guild)
-        await respond_safely(itx, embed=emb, ephemeral=True)
+        if itx.guild:
+            self.cog.add_footer(emb, itx.guild)
+        await itx.edit_original_response(content=None, embed=emb, view=None)
+
 
 # ---------------- ADMIN DASHBOARD
 
@@ -1074,14 +1109,15 @@ class AdminMoneyModal(discord.ui.Modal):
         if acc not in ("cash", "bank"):
             return await respond_safely(itx, content="❌ Account must be `cash` or `bank`.", ephemeral=True)
 
-        raw_amt = str(self.amount.value).strip()
-        raw_amt = raw_amt.replace(",", "")
+        raw_amt = str(self.amount.value).strip().replace(",", "")
         try:
             amt = float(raw_amt)
         except Exception:
             return await respond_safely(itx, content="❌ Invalid amount.", ephemeral=True)
         if amt < 0:
             return await respond_safely(itx, content="❌ Amount must be >= 0.", ephemeral=True)
+
+        await itx.response.defer(ephemeral=True, thinking=True)
 
         async with db.lock:
             u_before = await db.get_user(uid)
@@ -1116,7 +1152,8 @@ class AdminMoneyModal(discord.ui.Modal):
             description=f"Target: <@{uid}> (`{uid}`)\nAccount: `{acc}`\nAction: `{self.action}`\nNew balances: Bank {money(after_bank)} | Cash {money(after_cash)}"
         )
         self.cog.add_footer(emb, itx.guild)
-        await respond_safely(itx, embed=emb, ephemeral=True)
+        await itx.edit_original_response(embed=emb, content=None, view=None)
+
 
 class AdminHistoryModal(discord.ui.Modal):
     def __init__(self, cog: "EconomyCog"):
@@ -1132,6 +1169,8 @@ class AdminHistoryModal(discord.ui.Modal):
         uid = parse_user_id(str(self.target.value))
         if not uid:
             return await respond_safely(itx, content="❌ Invalid user.", ephemeral=True)
+
+        await itx.response.defer(ephemeral=True, thinking=True)
 
         rows = db.conn.execute("""
             SELECT ts, actor_id, action, account, amount, before_cash, before_bank, after_cash, after_bank, note
@@ -1156,7 +1195,8 @@ class AdminHistoryModal(discord.ui.Modal):
             emb.add_field(name="Recent Entries:", value="\n\n".join(lines)[:4000], inline=False)
 
         self.cog.add_footer(emb, itx.guild)
-        await respond_safely(itx, embed=emb, ephemeral=True)
+        await itx.edit_original_response(embed=emb, content=None, view=None)
+
 
 class AdminDashboardView(discord.ui.View):
     def __init__(self, cog: "EconomyCog"):
@@ -1190,6 +1230,7 @@ class AdminDashboardView(discord.ui.View):
             return await respond_safely(itx, content="❌ Bank Staff only.", ephemeral=True)
         await itx.response.send_modal(AdminHistoryModal(self.cog))
 
+
 # ============================================================
 # COG
 # ============================================================
@@ -1197,8 +1238,23 @@ class AdminDashboardView(discord.ui.View):
 class EconomyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+        # ✅ Cache external pay lookups to avoid rate-limits
+        # key: (guild_id, uid) -> (rate, expires_ts)
+        self._rate_cache: Dict[Tuple[int, int], Tuple[float, int]] = {}
+
         self.salary_task.start()
         self.cleanup_task.start()
+
+    def cog_unload(self):
+        try:
+            self.salary_task.cancel()
+        except Exception:
+            pass
+        try:
+            self.cleanup_task.cancel()
+        except Exception:
+            pass
 
     # ---------------- embeds
     def add_footer(self, embed: discord.Embed, guild: discord.Guild):
@@ -1215,6 +1271,22 @@ class EconomyCog(commands.Cog):
         emb = discord.Embed(title=title, description=description, color=DPS_COLOR)
         emb.set_thumbnail(url=DPS_THUMBNAIL)
         return emb
+
+    # ---------------- pay cache
+    async def _get_rate_cached(self, *, pay_guild_id: int, uid: int, mapping: Dict[int, float]) -> float:
+        key = (pay_guild_id, uid)
+        now = now_ts()
+        cached = self._rate_cache.get(key)
+        if cached and cached[1] > now:
+            return float(cached[0])
+
+        ext = await get_external_member(self.bot, pay_guild_id, uid)
+        r = highest_rate(ext, mapping)
+        rate = float(r if r is not None else BASE_PAY_PER_MINUTE)
+
+        # cache for 5 minutes
+        self._rate_cache[key] = (rate, now + 300)
+        return rate
 
     # ---------------- pay logic (STRICT CALLSIGN)
     async def get_pay_context(self, main_member: discord.Member) -> Optional[Tuple[float, str, str]]:
@@ -1234,21 +1306,18 @@ class EconomyCog(commands.Cog):
 
         # DOC
         if has_role(main_member, DISPATCH_ROLE_ID) and DOC_CALLSIGN_RE.match(callsign):
-            ext = await get_external_member(self.bot, DOC_PAY_GUILD_ID, uid)
-            r = highest_rate(ext, DOC_PAY_ROLES)
-            return (float(r if r is not None else BASE_PAY_PER_MINUTE), "DOC", callsign)
+            rate = await self._get_rate_cached(pay_guild_id=DOC_PAY_GUILD_ID, uid=uid, mapping=DOC_PAY_ROLES)
+            return (rate, "DOC", callsign)
 
         # LCFR
         if has_role(main_member, LCFR_MEMBER_ROLE_ID) and LCFR_CALLSIGN_RE.match(callsign):
-            ext = await get_external_member(self.bot, LCFR_PAY_GUILD_ID, uid)
-            r = highest_rate(ext, LCFR_PAY_ROLES)
-            return (float(r if r is not None else BASE_PAY_PER_MINUTE), "LCFR", callsign)
+            rate = await self._get_rate_cached(pay_guild_id=LCFR_PAY_GUILD_ID, uid=uid, mapping=LCFR_PAY_ROLES)
+            return (rate, "LCFR", callsign)
 
         # DPS
         if has_role(main_member, LPD_ROLE_ID) and DPS_CALLSIGN_RE.match(callsign):
-            ext = await get_external_member(self.bot, DPS_PAY_GUILD_ID, uid)
-            r = highest_rate(ext, DPS_PAY_ROLES)
-            return (float(r if r is not None else BASE_PAY_PER_MINUTE), "DPS", callsign)
+            rate = await self._get_rate_cached(pay_guild_id=DPS_PAY_GUILD_ID, uid=uid, mapping=DPS_PAY_ROLES)
+            return (rate, "DPS", callsign)
 
         return None  # no valid dept/callsign combo => NO PAY
 
@@ -1376,7 +1445,10 @@ class EconomyCog(commands.Cog):
                     or (m.voice.channel.id == AFK_CHANNEL_ID)
                 )
 
-                row = db.conn.execute("SELECT * FROM active_shifts WHERE uid=?", (str(m.id),)).fetchone()
+                row = db.conn.execute(
+                    "SELECT * FROM active_shifts WHERE uid=?",
+                    (str(m.id),)
+                ).fetchone()
 
                 # if inactive, do not accrue minutes, but keep AFK timer
                 if inactive:
@@ -1386,10 +1458,12 @@ class EconomyCog(commands.Cog):
                                 "UPDATE active_shifts SET afk_timer = afk_timer + 1, last_seen_ts = ? WHERE uid=?",
                                 (now, str(m.id)),
                             )
-                        new_row = db.conn.execute("SELECT afk_timer FROM active_shifts WHERE uid=?", (str(m.id),)).fetchone()
+                        new_row = db.conn.execute(
+                            "SELECT afk_timer FROM active_shifts WHERE uid=?",
+                            (str(m.id),)
+                        ).fetchone()
                         afk_timer = int(new_row["afk_timer"]) if new_row else 0
                     else:
-                        # DO NOT create shift rows for civilians/no callsign
                         ctx = await self.get_pay_context(m)
                         if not ctx:
                             continue
@@ -1412,7 +1486,6 @@ class EconomyCog(commands.Cog):
                 # active: must have valid callsign+dept
                 ctx = await self.get_pay_context(m)
                 if not ctx:
-                    # if they had an active shift but now invalid, finalize it
                     if row:
                         minutes = int(row["minutes"] or 0)
                         gross = float(row["gross"] or 0.0)
@@ -1497,6 +1570,10 @@ class EconomyCog(commands.Cog):
                         WHERE uid = ?
                     """, (float(use_rate), now, str(m.id)))
 
+    @salary_task.before_loop
+    async def _before_salary_task(self):
+        await self.bot.wait_until_ready()
+
     @tasks.loop(seconds=60)
     async def cleanup_task(self):
         guild = self.bot.get_guild(MAIN_GUILD_ID)
@@ -1533,7 +1610,6 @@ class EconomyCog(commands.Cog):
                 if not member:
                     continue
 
-                # only submit if payable (never pay civilians)
                 if dept in ("DPS", "LCFR", "DOC") and callsign and rate > 0 and minutes > 0 and gross > 0:
                     await self._submit_shift_for_approval(
                         guild=guild,
@@ -1548,8 +1624,14 @@ class EconomyCog(commands.Cog):
                         reason="Shift ended (timed out / left salary VC).",
                     )
 
+    @cleanup_task.before_loop
+    async def _before_cleanup_task(self):
+        await self.bot.wait_until_ready()
+
     # ============================================================
     # CITATIONS OUTPUTS
+    # ============================================================
+
     # ============================================================
 
     async def _post_citation_outputs(
@@ -1633,7 +1715,8 @@ class EconomyCog(commands.Cog):
         emb = self.econ_embed(title=f"Account Balances: {target.display_name}")
         emb.add_field(name="Bank:", value=money(float(u["bank"])), inline=True)
         emb.add_field(name="Cash:", value=money(float(u["cash"])), inline=True)
-        self.add_footer(emb, itx.guild)
+        if itx.guild:
+            self.add_footer(emb, itx.guild)
         await respond_safely(itx, embed=emb, ephemeral=False)
 
     @app_commands.command(name="leaderboard", description="Top 10 wealthiest citizens")
@@ -1645,12 +1728,10 @@ class EconomyCog(commands.Cog):
             LIMIT 10
         """).fetchall()
 
-        lines = []
-        for i, r in enumerate(rows, start=1):
-            lines.append(f"**{i}.** <@{r['uid']}> — `{money(float(r['total']))}`")
-
+        lines = [f"**{i}.** <@{r['uid']}> — `{money(float(r['total']))}`" for i, r in enumerate(rows, start=1)]
         emb = self.econ_embed(title="Top 10 Wealthiest Citizens", description="\n".join(lines) if lines else "No data yet.")
-        self.add_footer(emb, itx.guild)
+        if itx.guild:
+            self.add_footer(emb, itx.guild)
         await respond_safely(itx, embed=emb, ephemeral=False)
 
     @app_commands.command(name="gamble", description="Coinflip gamble from your CASH (very low win chance)")
@@ -1720,6 +1801,9 @@ class EconomyCog(commands.Cog):
                 VALUES (?, ?, ?, 'TRANSFER', ?)
             """, (str(itx.user.id), str(recipient.id), float(amount), str(note))).lastrowid
 
+        if not itx.guild:
+            return await respond_safely(itx, content=f"✅ Transfer #{tx_id} submitted.", ephemeral=True)
+
         chan = itx.guild.get_channel(TRANSFER_AUTH_CHANNEL)
         if chan:
             emb = self.econ_embed(title="Bank Transfer Request")
@@ -1739,7 +1823,8 @@ class EconomyCog(commands.Cog):
 
     @app_commands.command(name="shop", description="Open the shop")
     async def shop_slash(self, itx: discord.Interaction):
-        today = date.today().isoformat()
+        # ✅ UTC daily limit
+        today = datetime.now(timezone.utc).date().isoformat()
         row = db.conn.execute("SELECT last_buy_date FROM scratch_daily WHERE uid=?", (str(itx.user.id),)).fetchone()
         can_buy = not (row and (row["last_buy_date"] or "") == today)
 
@@ -1751,7 +1836,8 @@ class EconomyCog(commands.Cog):
                 f"> Use `/scratch` or `?scratch` to scratch it."
             )
         )
-        self.add_footer(emb, itx.guild)
+        if itx.guild:
+            self.add_footer(emb, itx.guild)
         await respond_safely(itx, embed=emb, view=ShopView(self, itx.user.id, can_buy_today=can_buy), ephemeral=True)
 
     @app_commands.command(name="scratch", description="Use a scratch card (very low win chance)")
@@ -1813,7 +1899,8 @@ class EconomyCog(commands.Cog):
 
         lines = [f"• **{r['item_name']}** × {int(r['qty'])}" for r in rows if int(r["qty"]) > 0]
         emb = self.econ_embed(title=f"{itx.user.display_name}'s Inventory", description="\n".join(lines))
-        self.add_footer(emb, itx.guild)
+        if itx.guild:
+            self.add_footer(emb, itx.guild)
         await respond_safely(itx, embed=emb, ephemeral=True)
 
     @app_commands.command(name="loan_request", description="Request a bank loan (Bank Staff approval required)")
@@ -1832,6 +1919,9 @@ class EconomyCog(commands.Cog):
                 "INSERT INTO pending_tx (sender_id, receiver_id, amount, tx_type, note, meta) VALUES ('BANK', ?, ?, 'LOAN', ?, ?)",
                 (str(itx.user.id), float(amount), reason, str(loan_id)),
             ).lastrowid
+
+        if not itx.guild:
+            return await respond_safely(itx, content=f"✅ Loan request `{loan_id}` submitted.", ephemeral=True)
 
         desk = itx.guild.get_channel(LOAN_DESK_CHANNEL_ID)
         if desk:
@@ -1864,7 +1954,6 @@ class EconomyCog(commands.Cog):
 
     @app_commands.command(name="economy_reset_all", description="Admin: Reset everyone to Bank $5,000 and Cash $0")
     async def economy_reset_all(self, itx: discord.Interaction):
-        # safety: only allow in MAIN guild
         if not itx.guild or itx.guild.id != MAIN_GUILD_ID:
             return await respond_safely(itx, content="❌ This command can only be used in the main server.", ephemeral=True)
         if not isinstance(itx.user, discord.Member) or not itx.user.guild_permissions.administrator:
@@ -1881,13 +1970,14 @@ class EconomyCog(commands.Cog):
                 if c_itx.user.id != itx.user.id:
                     return await respond_safely(c_itx, content="This isn’t your confirmation.", ephemeral=True)
 
+                await c_itx.response.defer(ephemeral=True, thinking=True)
+
                 async with db.lock:
                     row = db.conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
                     total_users = int(row["n"]) if row else 0
 
                     with db.conn:
                         db.conn.execute("UPDATE users SET cash=0, bank=5000")
-                        # audit entry (single row)
                         db.conn.execute(
                             """
                             INSERT INTO money_history
@@ -1902,7 +1992,7 @@ class EconomyCog(commands.Cog):
                     description=f"✅ Reset **{total_users}** users to **Bank {money(5000)}** and **Cash {money(0)}**."
                 )
                 cog.add_footer(emb, itx.guild)
-                await c_itx.response.edit_message(embed=emb, content=None, view=None)
+                await c_itx.edit_original_response(embed=emb, content=None, view=None)
 
             @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
             async def cancel(self, c_itx: discord.Interaction, _: discord.ui.Button):
@@ -1933,7 +2023,6 @@ class EconomyCog(commands.Cog):
         if itx.guild.id not in ALLOWED_CITATION_GUILDS:
             return await respond_safely(itx, content="❌ Citations aren’t enabled in this server.", ephemeral=True)
 
-        # Check LPD perms from MAIN guild so /cite works cross-guild
         main_member = await get_external_member(self.bot, MAIN_GUILD_ID, itx.user.id)
         if not main_member or not has_role(main_member, LPD_ROLE_ID):
             return await respond_safely(itx, content="LPD only.", ephemeral=True)
@@ -1967,6 +2056,8 @@ class EconomyCog(commands.Cog):
                 if c_itx.user.id != itx.user.id:
                     return await respond_safely(c_itx, content="This isn’t your confirmation.", ephemeral=True)
 
+                await c_itx.response.defer(ephemeral=True, thinking=True)
+
                 async with db.lock:
                     with db.conn:
                         db.conn.execute("""
@@ -1978,7 +2069,7 @@ class EconomyCog(commands.Cog):
 
                 main_guild = cog.bot.get_guild(MAIN_GUILD_ID)
                 if not main_guild:
-                    return await c_itx.response.edit_message(content="❌ Main server not found.", embed=None, view=None)
+                    return await c_itx.edit_original_response(content="❌ Main server not found.", embed=None, view=None)
 
                 chan = main_guild.get_channel(CITATION_SUBMIT_CHANNEL)
                 if chan:
@@ -2008,7 +2099,7 @@ class EconomyCog(commands.Cog):
                         )
                     )
 
-                await c_itx.response.edit_message(content="✅ Citation submitted to supervisors.", embed=None, view=None)
+                await c_itx.edit_original_response(content="✅ Citation submitted to supervisors.", embed=None, view=None)
 
             @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
             async def cancel(self, c_itx: discord.Interaction, _: discord.ui.Button):
@@ -2231,7 +2322,7 @@ class EconomyCog(commands.Cog):
         if not await self._prefix_gate(ctx):
             return
 
-        today = date.today().isoformat()
+        today = datetime.now(timezone.utc).date().isoformat()
         row = db.conn.execute("SELECT last_buy_date FROM scratch_daily WHERE uid=?", (str(ctx.author.id),)).fetchone()
         can_buy = not (row and (row["last_buy_date"] or "") == today)
 
@@ -2295,6 +2386,7 @@ class EconomyCog(commands.Cog):
                 )
 
         await ctx.send(msg)
+
 
 # ============================================================
 # SETUP
