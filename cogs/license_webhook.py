@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # --- stdlib ---
@@ -43,6 +42,14 @@ class LicenseSystem(commands.Cog):
 
     DB_PATH = "workforce.db"
 
+    # Thumbnail requested
+    THUMBNAIL_URL = (
+        "https://media.discordapp.net/attachments/1445223165692350606/"
+        "1454230155131228221/WHITELISTED_NO_BACKGROUND.png"
+        "?ex=6956ec5f&is=69559adf&hm=f62e20e343adf689d337c14da5a6e4946ec180cb26e7c36e7527bf2960880a8d"
+        "&=&format=webp&quality=lossless"
+    )
+
     # ============================================================
     # GOOGLE SHEETS CONFIG
     # ============================================================
@@ -72,10 +79,9 @@ class LicenseSystem(commands.Cog):
         if self._flask_thread is None:
             self._flask_thread = Thread(target=self._run_flask, daemon=True)
             self._flask_thread.start()
-            log.info("✅ License Flask API started on 0.0.0.0:8080")
+            log.info("✅ License Flask API started on 0.0.0.0:%s", os.getenv("PORT", "8080"))
 
     async def cog_unload(self):
-        # Flask cannot be cleanly stopped easily in dev server; ignore.
         pass
 
     # ============================================================
@@ -395,9 +401,15 @@ class LicenseSystem(commands.Cog):
         conn.commit()
 
     # ============================================================
-    # SEND TO DISCORD
+    # SEND TO DISCORD (UPDATED: DM user same embed + image as log channel)
     # ============================================================
-    async def send_license_to_discord(self, img_data: bytes, filename: str, discord_id: str, license_type: str = "official"):
+    async def send_license_to_discord(
+        self,
+        img_data: bytes,
+        filename: str,
+        discord_id: str,
+        license_type: str = "official",
+    ):
         await self.bot.wait_until_ready()
 
         license_type = (license_type or "official").lower().strip()
@@ -410,6 +422,7 @@ class LicenseSystem(commands.Cog):
 
         uid = int(discord_id)
 
+        # Resolve log channel
         channel = self.bot.get_channel(self.LOG_CHANNEL_ID)
         if channel is None:
             try:
@@ -417,12 +430,14 @@ class LicenseSystem(commands.Cog):
             except Exception:
                 channel = None
 
+        # Resolve guild/member for roles
         guild = None
         if isinstance(channel, discord.TextChannel) and channel.guild:
             guild = channel.guild
         elif self.bot.guilds:
             guild = self.bot.guilds[0]
 
+        # Roles
         try:
             if guild:
                 member = guild.get_member(uid)
@@ -450,27 +465,64 @@ class LicenseSystem(commands.Cog):
         except Exception as e:
             log.warning("Role management error for %s: %s", uid, e)
 
+        # Build the EXACT embed that will be used for BOTH DM + log channel
+        if normalized_type == "provisional":
+            embed = discord.Embed(
+                title="LKVC: Provisional License Generated",
+                description=(
+                    "> We have generated your provisional license, this needs to be added & updated onto your Sonoran CAD Character. "
+                    "You are now bound to our [provisional license regulations]"
+                    "(https://docs.google.com/document/d/1F7tN0HrWWKe3GprX0TlzaqXd-1PAiA-3u3GLB0Q-wUU/edit?usp=sharing). "
+                    "Run `/dmv-points` to check your points. Also ensure to apply for a official license "
+                    "[here](https://discord.com/channels/1328475009542258688/1437618758440063128). ."
+                ),
+                color=0xE67E22,
+            )
+        else:
+            embed = discord.Embed(
+                title="LKVC: Official Drivers License",
+                description=(
+                    "> We have generated your official drivers license, please save this & upload it to Sonoran CAD. "
+                    "You are bound to all DMV [Road Regulations]"
+                    "(https://docs.google.com/document/d/1fRGbl0cB_JQhPFLTxsQ65n2qzH2o37UsZmzJl-K1BVM/edit?usp=sharing). "
+                    "Your license may attain points via the [point system]"
+                    "(https://docs.google.com/document/d/10ncyZktSIhbs3X9tY-Ru63cBpO08yMUY72IjDeTlBIU/edit?usp=sharing) "
+                    "or citations, you can check this by running `/dmv-points`."
+                ),
+                color=0x2ECC71,
+            )
+
+        embed.set_thumbnail(url=self.THUMBNAIL_URL)
+        embed.set_image(url=f"attachment://{filename}")
+        embed.set_footer(text="Lakeview City DMV • Official Document")
+
+        # --- 1) DM the user the SAME embed + image ---
+        dm_sent = False
+        try:
+            user = await self.bot.fetch_user(uid)
+            if user:
+                file_dm = discord.File(io.BytesIO(img_data), filename=filename)
+                await user.send(embed=embed, file=file_dm)
+                dm_sent = True
+        except discord.Forbidden:
+            dm_sent = False
+        except Exception as e:
+            dm_sent = False
+            log.warning("DM send error for %s: %s", uid, e)
+
+        # --- 2) Send to log channel (same embed + image) ---
         if channel and hasattr(channel, "send"):
-            file_ch = discord.File(io.BytesIO(img_data), filename=filename)
-
-            if normalized_type == "provisional":
-                embed = discord.Embed(
-                    title="LKVC: Provisional License Generated",
-                    description="> We have generated your provisional license, this needs to be added & updated onto your Sonoran CAD Character. You are now bound to our [provisional license regulations](https://docs.google.com/document/d/1F7tN0HrWWKe3GprX0TlzaqXd-1PAiA-3u3GLB0Q-wUU/edit?usp=sharing). Run `/dmv-points` to check your points. Also ensure to apply for a official license [here](https://discord.com/channels/1328475009542258688/1437618758440063128). .",
-                    color=0xE67E22,
-                )
-            else:
-                embed = discord.Embed(
-                    title="LKVC: Official Drivers License",
-                    description="> We have generated your official drivers license, please save this & upload it to Sonoran CAD. You are bound to all DMV [Road Regulations](https://docs.google.com/document/d/1fRGbl0cB_JQhPFLTxsQ65n2qzH2o37UsZmzJl-K1BVM/edit?usp=sharing). Your license may attain points via the [point system](https://docs.google.com/document/d/10ncyZktSIhbs3X9tY-Ru63cBpO08yMUY72IjDeTlBIU/edit?usp=sharing) or citations, you can check this by running `/dmv-points`. ",
-                    color=0x2ECC71,
-                )
-
-            embed.set_image(url=f"attachment://{filename}")
-            embed.set_footer(text="Lakeview City DMV • Official Document")
-            await channel.send(content=f"<@{uid}>", embed=embed, file=file_ch)
+            try:
+                file_ch = discord.File(io.BytesIO(img_data), filename=filename)
+                # keep ping in log channel
+                await channel.send(content=f"<@{uid}>", embed=embed, file=file_ch)
+            except Exception as e:
+                log.warning("Log channel send error for %s: %s", uid, e)
         else:
             log.warning("LOG_CHANNEL_ID is invalid or not messageable (%s).", self.LOG_CHANNEL_ID)
+
+        if not dm_sent:
+            log.info("User %s could not be DMed (privacy/blocked).", uid)
 
     # ============================================================
     # FLASK ROUTES
@@ -534,7 +586,7 @@ class LicenseSystem(commands.Cog):
                     if exc:
                         log.error("[/license] send_license_to_discord failed: %s", exc)
                     else:
-                        log.info("[/license] License posted for %s", discord_id)
+                        log.info("[/license] License posted+DMd for %s", discord_id)
 
                 fut.add_done_callback(_done_cb)
 
@@ -616,7 +668,6 @@ class LicenseSystem(commands.Cog):
                 return jsonify({"status": "error", "message": str(e)}), 500
 
     def _run_flask(self):
-        # Render uses PORT; locally 8080 is fine
         port = int(os.getenv("PORT", "8080"))
         self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
