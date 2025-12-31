@@ -685,13 +685,7 @@ async def setup_hook():
     bot.db = await aiosqlite.connect(DB_PATH)
 
     extensions = [
-        "cogs.erlc_application",
-        "cogs.cad",
-        "cogs.dmv",
-        "cogs.dept roster",
-        "cogs.economy",
-        "cogs.auto_giveaway",
-        "cogs.blackmarket"
+
     ]
 
     for ext in extensions:
